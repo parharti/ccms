@@ -1,0 +1,122 @@
+import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { Sidebar } from '../components/Sidebar';
+import { Moon, Sun, WifiOff } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { BASE_URL } from '../lib/api';
+
+interface MainLayoutProps {
+  children: React.ReactNode;
+}
+
+const ROUTE_TITLES: { pattern: RegExp; title: string; subtitle: string }[] = [
+  { pattern: /^\/$/, title: 'Dashboard', subtitle: 'Live overview of all screening activity.' },
+  { pattern: /^\/recruitment\/[^/]+\//, title: 'Candidate review', subtitle: 'Detailed criterion-by-criterion breakdown.' },
+  { pattern: /^\/recruitment\/[^/]+$/, title: 'Job profile', subtitle: 'Manage criteria, upload candidates, and run screening.' },
+  { pattern: /^\/recruitment$/, title: 'Job profiles', subtitle: 'All active job profiles and JD uploads.' },
+  { pattern: /^\/candidate\//, title: 'Candidate review', subtitle: 'Criterion evaluations and HR override.' },
+  { pattern: /^\/reports\//, title: 'Screening results', subtitle: 'Filtered candidate results and Excel export.' },
+  { pattern: /^\/settings$/, title: 'Preferences', subtitle: 'Account and appearance settings.' },
+];
+
+function useRouteTitle(pathname: string) {
+  for (const { pattern, title, subtitle } of ROUTE_TITLES) {
+    if (pattern.test(pathname)) return { title, subtitle };
+  }
+  return { title: 'RecruitAI Validator', subtitle: '' };
+}
+
+function useBackendStatus() {
+  const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/`, { credentials: 'include' });
+        if (!cancelled) setOnline(res.ok);
+      } catch {
+        if (!cancelled) setOnline(false);
+      }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return online;
+}
+
+export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
+  const { user } = useAuth();
+  const location = useLocation();
+  const { title, subtitle } = useRouteTitle(location.pathname);
+  const backendOnline = useBackendStatus();
+
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    (localStorage.getItem('ihmcl_theme') as 'light' | 'dark') || 'light'
+  );
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem('ihmcl_theme', theme);
+  }, [theme]);
+
+  const displayName = user?.email ? user.email.split('@')[0] : 'HR';
+
+  return (
+    <div className="min-h-screen bg-background text-foreground flex">
+      <Sidebar />
+
+      <div className="flex-1 min-w-0 pl-64 flex flex-col min-h-screen">
+        {/* Header */}
+        <header className="h-16 bg-card/80 backdrop-blur border-b border-border px-8 flex items-center justify-between sticky top-0 z-10">
+          <div className="flex flex-col justify-center">
+            <h2 className="font-bold text-foreground text-xl leading-tight">{title}</h2>
+            {subtitle && <p className="text-sm text-muted font-normal leading-tight mt-0.5">{subtitle}</p>}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Backend status — only shown once resolved */}
+            {backendOnline === true && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-success/10 border border-success/20 text-success text-xs font-semibold">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-success" />
+                </span>
+                Connected
+              </div>
+            )}
+            {backendOnline === false && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs font-semibold">
+                <WifiOff className="w-3 h-3" />
+                Offline
+              </div>
+            )}
+
+            {/* Theme toggle */}
+            <button
+              onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
+              className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-card text-foreground text-sm font-medium hover:bg-accent transition-colors"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark'
+                ? <Sun className="w-4 h-4 text-amber-400" />
+                : <Moon className="w-4 h-4 text-muted" />}
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            </button>
+
+            <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs shadow-sm uppercase">
+              {displayName.slice(0, 2)}
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 min-w-0 p-8 overflow-y-auto">{children}</main>
+      </div>
+    </div>
+  );
+};
+
+export default MainLayout;

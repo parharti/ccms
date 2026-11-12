@@ -1,0 +1,482 @@
+"""
+Candidate upload endpoint.
+
+HR selects a specific Job Profile, then uploads:
+  1. The candidate master data file (Excel/tab-separated export)
+  2. A master ZIP containing one folder per candidate (older exports
+     with one nested ZIP per candidate are auto-detected and still work)
+
+This endpoint ingests everything: matches each candidate to their Excel
+row, extracts + tags their documents, and saves it all to the database --
+ready for the (future) screening/evaluation step. This is HR flow Step 5:
+"Select a specific profile, then screen candidates" (upload part).
+"""
+
+import os
+import shutil
+import uuid
+from typing import Optional
+
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
+from app.models.job_profile import JobProfile
+from app.models.department_template import DepartmentTemplate
+from app.models.candidate import Candidate, CandidateDocument
+from app.models.criterion_evaluation import CriterionEvaluation
+from app.models.screening_run import ScreeningRun
+from app.schemas.candidate import CandidateUploadSummary, CandidateOut
+from app.services.candidate_ingestion import load_candidate_master_data, process_master_zip
+from app.services.column_mapping import load_sheet, apply_template
+from app.services.age_relaxation import normalize_candidate_category
+from app.services.auth_service import get_current_hr_user
+from app.services.candidate_evaluation import criteria_fingerprint, results_outdated
+
+router = APIRouter(
+    prefix="/jd/profiles/{profile_id}/candidates",
+    tags=["candidates"],
+    dependencies=[Depends(get_current_hr_user)],
+)
+
+UPLOAD_DIR = os.path.abspath(os.getenv("CANDIDATE_UPLOAD_DIR", "storage/candidate_uploads"))
+
+
+def _delete_candidate_screening_data(db: Session, candidate_id: str) -> None:
+    """
+    Removes a candidate's screening artifacts (criterion evaluations).
+    Used when a candidate is re-uploaded: the old results were computed
+    against their OLD documents, so keeping them would show stale (and,
+    before this existed, duplicate) results.
+    """
+    db.query(CriterionEvaluation).filter(
+        CriterionEvaluation.candidate_id == candidate_id
+    ).delete(synchronize_session=False)
+
+
+@router.post("/upload", response_model=CandidateUploadSummary)
+def upload_candidates(
+    profile_id: str,
+    excel_file: UploadFile = File(...),
+    master_zip_file: UploadFile = File(...),
+    template_id: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    # Plain `def` (not async): ZIP extraction + pandas parsing are blocking
+    # and can take minutes for a big batch -- as a sync endpoint Starlette
+    # runs this on a worker thread instead of freezing the event loop.
+    profile = db.query(JobProfile).filter(JobProfile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Job Profile '{profile_id}' not found")
+
+    # Save both uploaded files to disk first -- pandas and zipfile need
+    # real file paths to work with (not in-memory upload streams), and
+    # we want a persistent per-batch folder anyway to store documents in.
+    batch_dir = os.path.join(UPLOAD_DIR, str(uuid.uuid4()))
+    os.makedirs(batch_dir, exist_ok=True)
+
+    # Stream to disk in chunks -- reading a multi-GB master ZIP fully into
+    # memory (the old `await file.read()`) could exhaust RAM and kill the
+    # request, which surfaced as "upload failed" for big batches.
+    excel_path = os.path.join(batch_dir, excel_file.filename)
+    with open(excel_path, "wb") as f:
+        shutil.copyfileobj(excel_file.file, f, length=1024 * 1024)
+
+    zip_path = os.path.join(batch_dir, master_zip_file.filename)
+    with open(zip_path, "wb") as f:
+        shutil.copyfileobj(master_zip_file.file, f, length=1024 * 1024)
+
+    # The department template (if any) says how to read this department's
+    # sheet and documents. No template = the original IHMCL layout.
+    template = None
+    ingestion_config = None
+    if template_id:
+        template = db.query(DepartmentTemplate).filter(DepartmentTemplate.id == template_id).first()
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Department template '{template_id}' not found")
+
+    try:
+        if template:
+            df = apply_template(
+                load_sheet(excel_path, template.header_row), template.field_map or {}
+            )
+            ingestion_config = {
+                "document_columns": template.document_columns or {},
+                "resume_patterns": template.resume_filename_patterns or [],
+            }
+        else:
+            df = load_candidate_master_data(excel_path)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not parse the candidate data file: {e}")
+
+    if "Id." not in df.columns:
+        raise HTTPException(
+            status_code=422,
+            detail="No 'Id.' column found in the uploaded file -- candidate matching cannot proceed without it.",
+        )
+
+    documents_storage_dir = os.path.join(batch_dir, "documents")
+
+    try:
+        results = process_master_zip(df, zip_path, documents_storage_dir, ingestion_config)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not process the master ZIP: {e}")
+
+    # Remember which template this post's candidates came from -- screening
+    # reads its evidence mode.
+    profile.department_template_id = template.id if template else None
+
+    status_counts = {
+        "documents_complete": 0,
+        "documents_incomplete": 0,
+        "no_documents_found": 0,
+        "excel_row_not_found": 0,
+        "corrupt_zip": 0,
+    }
+    created_candidates: list[Candidate] = []
+    replaced_candidates = 0
+
+    for r in results:
+        status_counts[r["ingestion_status"]] = status_counts.get(r["ingestion_status"], 0) + 1
+
+        # UPSERT by the Excel "Id." column: the same candidate re-uploaded
+        # to the same profile REPLACES their existing record (fresh data +
+        # fresh documents, old screening results wiped) instead of creating
+        # a duplicate that would show up twice in Results.
+        existing = (
+            db.query(Candidate)
+            .filter(
+                Candidate.job_profile_id == profile.id,
+                Candidate.external_id == r["external_id"],
+            )
+            .order_by(Candidate.roster_position, Candidate.created_at)
+            .all()
+        )
+
+        if existing:
+            candidate = existing[0]
+
+            # Duplicates left behind by re-uploads made BEFORE this upsert
+            # existed -- absorb them into the one surviving record.
+            for duplicate in existing[1:]:
+                _delete_candidate_screening_data(db, duplicate.id)
+                db.delete(duplicate)  # cascade removes its document rows
+
+            # Old evaluations/verifications were computed against the old
+            # upload's documents -- they must not linger next to new data.
+            _delete_candidate_screening_data(db, candidate.id)
+
+            candidate.name = r.get("name")
+            candidate.email = r.get("email")
+            candidate.phone = r.get("phone")
+            candidate.dob = r.get("dob")
+            candidate.gender = r.get("gender")
+            candidate.raw_category = r.get("raw_category")
+            candidate.normalized_category = r.get("normalized_category")
+            candidate.raw_excel_data = r.get("raw_excel_data")
+            candidate.ingestion_status = r["ingestion_status"]
+
+            # Back to "not screened yet" -- the next screening run will
+            # produce fresh results against the new documents.
+            candidate.computed_status = None
+            candidate.status = "not_evaluated"
+            candidate.status_overridden = False
+            candidate.override_reason = None
+            candidate.overridden_by = None
+            candidate.overridden_at = None
+            candidate.cv_certifications = None
+            candidate.has_cyber_security_certification = None
+            candidate.resume_consistency = None
+            candidate.gov_experience, candidate.gov_relevant_experience = None, None
+            candidate.review_tag = None
+            candidate.review_note = None
+            candidate.suitability_score = None
+
+            candidate.documents.clear()  # delete-orphan cascade drops old rows
+            db.flush()
+            replaced_candidates += 1
+        else:
+            # Even for candidates we couldn't fully process (missing Excel
+            # row, corrupt ZIP), we still create a minimal Candidate record --
+            # this keeps the batch fully visible during review, instead of
+            # silently dropping candidates that had a problem.
+            candidate = Candidate(
+                job_profile_id=profile.id,
+                external_id=r["external_id"],
+                name=r.get("name"),
+                email=r.get("email"),
+                phone=r.get("phone"),
+                dob=r.get("dob"),
+                gender=r.get("gender"),
+                raw_category=r.get("raw_category"),
+                normalized_category=r.get("normalized_category"),
+                raw_excel_data=r.get("raw_excel_data"),
+                ingestion_status=r["ingestion_status"],
+            )
+            db.add(candidate)
+            db.flush()
+
+        for doc_type, local_path in r.get("matched_documents", {}).items():
+            original_filename = os.path.basename(local_path)
+
+            # Text extraction is deliberately DEFERRED to the first
+            # screening run: build_document_context() extracts (with the
+            # OCR fallback for scans) in parallel background workers and
+            # caches the result on this row. Extracting here made large
+            # uploads take many minutes and fail on the client side.
+            extracted_text = None if local_path.lower().endswith(".pdf") else ""
+
+            db.add(CandidateDocument(
+                candidate_id=candidate.id,
+                document_type=doc_type,
+                file_path=local_path,
+                original_filename=original_filename,
+                extracted_text=extracted_text,
+            ))
+
+        created_candidates.append(candidate)
+
+    db.commit()
+    for c in created_candidates:
+        db.refresh(c)
+
+    return CandidateUploadSummary(
+        job_profile_id=profile.id,
+        total_candidates_found=len(results),
+        replaced_candidates=replaced_candidates,
+        documents_complete=status_counts["documents_complete"],
+        documents_incomplete=status_counts["documents_incomplete"],
+        no_documents_found=status_counts["no_documents_found"],
+        excel_row_not_found=status_counts["excel_row_not_found"],
+        corrupt_zip=status_counts["corrupt_zip"],
+        candidates=created_candidates,
+    )
+
+
+@router.post("/single", response_model=CandidateOut)
+def add_single_candidate(
+    profile_id: str,
+    external_id: str = Form(...),
+    name: str = Form(None),
+    email: str = Form(None),
+    phone: str = Form(None),
+    dob: str = Form(None),
+    gender: str = Form(None),
+    category: str = Form(None),
+    declared_info: str = Form(None),
+    documents: list[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Adds ONE candidate by hand -- for walk-ins, late applications, or
+    fixing a single record without re-uploading the whole roster.
+
+    `declared_info` is free text of whatever the candidate declared
+    (qualifications, experience, etc.); it lands in raw_excel_data, so
+    screening's stage-1 (declared vs JD) sees it just like an Excel row.
+    Same upsert rule as the bulk upload: an existing candidate with this
+    external_id is REPLACED (fresh data + documents, old results wiped).
+    """
+    profile = db.query(JobProfile).filter(JobProfile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Job Profile '{profile_id}' not found")
+
+    external_id = (external_id or "").strip()
+    if not external_id:
+        raise HTTPException(status_code=422, detail="Candidate ID (external_id) is required")
+
+    # Declared application data -- what screening's stage-1 checks.
+    raw_data = {"Id.": external_id}
+    for key, value in (
+        ("Name", name), ("Email", email), ("Phone", phone), ("DOB", dob),
+        ("Gender", gender), ("Category", category), ("Declared Information", declared_info),
+    ):
+        if value and value.strip():
+            raw_data[key] = value.strip()
+
+    files = [f for f in (documents or []) if f and f.filename]
+
+    doc_rows: list[tuple[str, str, str]] = []
+    if files:
+        candidate_dir = os.path.join(UPLOAD_DIR, "manual", str(uuid.uuid4()))
+        os.makedirs(candidate_dir, exist_ok=True)
+        for i, f in enumerate(files, start=1):
+            original_filename = os.path.basename(f.filename)
+            local_path = os.path.join(candidate_dir, original_filename)
+            with open(local_path, "wb") as out:
+                shutil.copyfileobj(f.file, out, length=1024 * 1024)
+            doc_rows.append((f"manual_document_{i}", local_path, original_filename))
+
+    ingestion_status = "documents_complete" if doc_rows else "no_documents_found"
+    normalized = normalize_candidate_category(category) if category else None
+
+    # Same upsert-by-external_id semantics as the bulk upload.
+    existing = (
+        db.query(Candidate)
+        .filter(Candidate.job_profile_id == profile.id, Candidate.external_id == external_id)
+        .order_by(Candidate.roster_position, Candidate.created_at)
+        .all()
+    )
+    if existing:
+        candidate = existing[0]
+        for duplicate in existing[1:]:
+            _delete_candidate_screening_data(db, duplicate.id)
+            db.delete(duplicate)
+        _delete_candidate_screening_data(db, candidate.id)
+
+        candidate.name = name
+        candidate.email = email
+        candidate.phone = phone
+        candidate.dob = dob
+        candidate.gender = gender
+        candidate.raw_category = category
+        candidate.normalized_category = normalized
+        candidate.raw_excel_data = raw_data
+        candidate.ingestion_status = ingestion_status
+        candidate.computed_status = None
+        candidate.status = "not_evaluated"
+        candidate.status_overridden = False
+        candidate.override_reason = None
+        candidate.overridden_by = None
+        candidate.overridden_at = None
+        candidate.cv_certifications = None
+        candidate.has_cyber_security_certification = None
+        candidate.resume_consistency = None
+        candidate.gov_experience, candidate.gov_relevant_experience = None, None
+        candidate.review_tag = None
+        candidate.review_note = None
+        candidate.suitability_score = None
+        candidate.documents.clear()
+        db.flush()
+    else:
+        candidate = Candidate(
+            job_profile_id=profile.id,
+            external_id=external_id,
+            name=name,
+            email=email,
+            phone=phone,
+            dob=dob,
+            gender=gender,
+            raw_category=category,
+            normalized_category=normalized,
+            raw_excel_data=raw_data,
+            ingestion_status=ingestion_status,
+        )
+        db.add(candidate)
+        db.flush()
+
+    for doc_type, local_path, original_filename in doc_rows:
+        # Text extraction deferred to the first screening run, same as bulk.
+        db.add(CandidateDocument(
+            candidate_id=candidate.id,
+            document_type=doc_type,
+            file_path=local_path,
+            original_filename=original_filename,
+            extracted_text=None if local_path.lower().endswith(".pdf") else "",
+        ))
+
+    db.commit()
+    db.refresh(candidate)
+    return candidate
+
+
+@router.get("", response_model=list[CandidateOut])
+def list_candidates(profile_id: str, db: Session = Depends(get_db)):
+    """
+    Lists all candidates uploaded so far for a given Job Profile, in
+    upload order (rows are created iterating the roster Excel, so
+    created_at order IS the Excel row order).
+    """
+    from app.routers.results import _attach_skill_match
+
+    candidates = (
+        db.query(Candidate)
+        .filter(Candidate.job_profile_id == profile_id)
+        .order_by(Candidate.roster_position, Candidate.created_at)
+        .all()
+    )
+    # The Results table shows each candidate's skills match next to the score.
+    _attach_skill_match(db, candidates)
+    profile = db.query(JobProfile).filter(JobProfile.id == profile_id).first()
+    if profile is not None:
+        fingerprint = criteria_fingerprint(profile)
+        for c in candidates:
+            c.results_outdated = results_outdated(c, fingerprint)
+    return candidates
+
+
+@router.delete("")
+def delete_all_candidates(profile_id: str, run_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Deletes candidates for this profile in one shot -- their document
+    rows and files on disk, criterion evaluations, and screening runs --
+    while leaving the profile, its criteria, and the JD itself untouched.
+    Lets HR clear a batch and upload a fresh roster against the same JD
+    without re-uploading and re-editing the JD.
+
+    Pass ?run_id=<screening run id> to delete ONLY the candidates last
+    screened in that run (and that run's history entry), leaving every
+    other candidate and run untouched.
+    """
+    profile = db.query(JobProfile).filter(JobProfile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Job Profile '{profile_id}' not found")
+
+    # Deleting candidates out from under an in-progress screening run
+    # would make its background workers fail row by row -- refuse instead.
+    active_run = (
+        db.query(ScreeningRun)
+        .filter(ScreeningRun.job_profile_id == profile_id, ScreeningRun.status.in_(("running", "stopping")))
+        .first()
+    )
+    if active_run:
+        raise HTTPException(
+            status_code=409,
+            detail="A screening run is in progress for this profile. Wait for it to finish before deleting candidates.",
+        )
+
+    candidate_id_query = db.query(Candidate.id).filter(Candidate.job_profile_id == profile_id)
+    if run_id is not None:
+        candidate_id_query = candidate_id_query.filter(Candidate.last_screening_run_id == run_id)
+    candidate_ids = [row[0] for row in candidate_id_query.all()]
+
+    # Collect document folders for best-effort disk cleanup AFTER the DB
+    # commit succeeds (same pattern as profile deletion).
+    document_dirs = set()
+    if candidate_ids:
+        for (file_path,) in (
+            db.query(CandidateDocument.file_path)
+            .filter(CandidateDocument.candidate_id.in_(candidate_ids))
+            .all()
+        ):
+            document_dirs.add(os.path.dirname(file_path))
+
+        # Children first -- the FKs have no ON DELETE CASCADE.
+        db.query(CriterionEvaluation).filter(
+            CriterionEvaluation.candidate_id.in_(candidate_ids)
+        ).delete(synchronize_session=False)
+        db.query(CandidateDocument).filter(
+            CandidateDocument.candidate_id.in_(candidate_ids)
+        ).delete(synchronize_session=False)
+        db.query(Candidate).filter(Candidate.id.in_(candidate_ids)).delete(
+            synchronize_session=False
+        )
+
+    # Runs describing candidates that no longer exist are cleared too --
+    # just the selected run for a scoped delete, all of them otherwise.
+    run_query = db.query(ScreeningRun).filter(ScreeningRun.job_profile_id == profile_id)
+    if run_id is not None:
+        run_query = run_query.filter(ScreeningRun.id == run_id)
+    run_query.delete(synchronize_session=False)
+
+    db.commit()
+
+    for directory in document_dirs:
+        try:
+            shutil.rmtree(directory)
+        except OSError:
+            pass
+
+    return {"deleted": len(candidate_ids)}
