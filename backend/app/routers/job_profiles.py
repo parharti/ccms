@@ -169,11 +169,12 @@ def update_profile_settings(profile_id: str, payload: ProfileSettingsUpdate, db:
     for key in nullable:
         if data.get(key) is not None and not 0 <= data[key] <= 100:
             raise HTTPException(status_code=422, detail="Close-miss minimums must be between 0 and 100.")
-    weights = {k: data.get(k, getattr(profile, k)) for k in ("weight_skills", "weight_experience", "weight_desirable")}
+    # Experience is not part of the suitability score (see compute_suitability).
+    weights = {k: data.get(k, getattr(profile, k)) for k in ("weight_skills", "weight_desirable")}
     if any(w < 0 for w in weights.values()):
         raise HTTPException(status_code=422, detail="Weights cannot be negative.")
     if sum(weights.values()) == 0:
-        raise HTTPException(status_code=422, detail="At least one weight must be above zero.")
+        raise HTTPException(status_code=422, detail="The skills or desirable-items weight must be above zero.")
 
     for key, value in data.items():
         setattr(profile, key, value)

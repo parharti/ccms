@@ -9,6 +9,18 @@ from datetime import date, datetime
 
 # ---- Age relaxation category normalization ----
 
+def normalize_categories(raw_category: str) -> list[str]:
+    """Like normalize_category, but a JD row covering BOTH SC and ST (e.g.
+    "SC/ST", "Scheduled Castes & Scheduled Tribes") returns both keys, so
+    the relaxation is stored for each and ST candidates are not left out."""
+    key = normalize_category(raw_category)
+    if key == "SC":
+        text = raw_category.lower()
+        if "scheduled tribe" in text or re.search(r"\bst\b", text):
+            return ["SC", "ST"]
+    return [key]
+
+
 def normalize_category(raw_category: str) -> str:
     """
     Maps a JD's raw age-relaxation category text (e.g. "Other Backward
@@ -22,7 +34,7 @@ def normalize_category(raw_category: str) -> str:
     """
     text = raw_category.lower()
 
-    has_disability = "disabilit" in text
+    has_disability = "disabilit" in text or re.search(r"\bpwd\b", text) is not None
     if has_disability:
         if any(kw in text for kw in ("sc/st", "scheduled caste", "scheduled tribe")):
             return "PwD_SC_ST"
@@ -41,9 +53,11 @@ def normalize_category(raw_category: str) -> str:
         return "Central_Govt_Employee"
     if any(kw in text for kw in ("jammu", "kashmir", "j&k")):
         return "JK_Domicile"
-    if any(kw in text for kw in ("scheduled caste", "sc/st", "sc /st", "sc,st")):
+    # Bare abbreviations ("SC", "ST", "SC/ST", "SC & ST") are matched as
+    # whole words, so e.g. "ST" never matches inside "Ex-Servicemen".
+    if "scheduled caste" in text or re.search(r"\bsc\b", text):
         return "SC"
-    if "scheduled tribe" in text:
+    if "scheduled tribe" in text or re.search(r"\bst\b", text):
         return "ST"
     if any(kw in text for kw in ("backward class", "obc")):
         return "OBC"
@@ -85,6 +99,16 @@ def normalize_candidate_category(raw_category) -> str:
     if text in ("", "nan", "n/a", "na"):
         return "General"
 
+    # Spelled-out names first: "scheduled tribe" contains "sc", so plain
+    # substring matching would read it as SC.
+    if "scheduled tribe" in text:
+        return "ST"
+    if "scheduled caste" in text:
+        return "SC"
+    if "backward" in text:
+        return "OBC"
+    if "economically weaker" in text:
+        return "EWS"
     for key, keywords in CANDIDATE_CATEGORY_RULES:
         if any(kw in text for kw in keywords):
             return key

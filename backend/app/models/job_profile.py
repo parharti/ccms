@@ -91,10 +91,12 @@ class JobProfile(Base):
     experience_tolerance_years: Mapped[float] = mapped_column(Float, default=2.0)
     exception_skills_threshold: Mapped[int] = mapped_column(Integer, default=80)
     # Weights of the suitability score used to rank candidates (any scale;
-    # they are normalised over the sections a post actually has).
-    weight_skills: Mapped[int] = mapped_column(Integer, default=50)
+    # they are normalised over the sections a post actually has). Only
+    # skills and desirable items count; weight_experience is kept for old
+    # rows but no longer used (experience is handled by the tolerance rule).
+    weight_skills: Mapped[int] = mapped_column(Integer, default=70)
     weight_experience: Mapped[int] = mapped_column(Integer, default=30)
-    weight_desirable: Mapped[int] = mapped_column(Integer, default=20)
+    weight_desirable: Mapped[int] = mapped_column(Integer, default=30)
     # "Close miss" tag: a NOT ELIGIBLE candidate who still scores at least
     # this much (0-100) in a section is tagged so HR can look at them. Each
     # section is optional -- NULL switches that section's check off.

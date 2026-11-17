@@ -22,7 +22,7 @@ from app.schemas.job_profile import JDUploadResponse
 from app.services.pdf_extraction import extract_jd_text
 from app.services.gemini_service import parse_jd_with_gemini, GeminiParsingError
 from app.services.age_relaxation import (
-    normalize_category,
+    normalize_categories,
     parse_age_range,
     validate_gemini_output,
 )
@@ -151,12 +151,13 @@ def upload_jd(file: UploadFile = File(...), db: Session = Depends(get_db)):
         if age_relax_data.get("mentioned_in_jd"):
             for rule in age_relax_data.get("rules", []):
                 raw_cat = rule.get("category", "")
-                db.add(AgeRelaxationRule(
-                    job_profile_id=profile.id,
-                    raw_category=raw_cat,
-                    normalized_category=normalize_category(raw_cat),
-                    relaxation_text=rule.get("relaxation", ""),
-                ))
+                for normalized in normalize_categories(raw_cat):
+                    db.add(AgeRelaxationRule(
+                        job_profile_id=profile.id,
+                        raw_category=raw_cat,
+                        normalized_category=normalized,
+                        relaxation_text=rule.get("relaxation", ""),
+                    ))
 
         created_profiles.append(profile)
 

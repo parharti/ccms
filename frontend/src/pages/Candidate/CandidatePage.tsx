@@ -393,7 +393,7 @@ export const CandidatePage: React.FC = () => {
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
               review.gov_tag ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-accent/30 border-border text-muted'
             }`}>
-              {review.gov_tag ? 'Tagged · ranked first in its group' : 'Not tagged'}
+              {review.gov_tag ? 'Tagged' : 'Not tagged'}
             </span>
           </div>
           <p className="text-xs text-muted font-normal mb-3">

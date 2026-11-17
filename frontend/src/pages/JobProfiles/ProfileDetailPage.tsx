@@ -20,7 +20,7 @@ import { ScreeningSettingsCard } from '../../components/ScreeningSettingsCard';
 import { AddCandidateModal } from '../../components/AddCandidateModal';
 import { SkillItemsEditor } from '../../components/SkillItemsEditor';
 import { RescreenDialog } from '../../components/RescreenDialog';
-import { rankCandidates } from '../../lib/ranking';
+import { rankCandidates, resultGroup } from '../../lib/ranking';
 import type { Criterion, SkillItem } from '../../types';
 
 const CRITERION_TYPES = ['age', 'education', 'experience', 'skill', 'other'];
@@ -1046,9 +1046,9 @@ export const ProfileDetailPage: React.FC = () => {
                             </td>
                             <td className="py-3 px-5">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <StatusBadge status={c.status} />
+                                <StatusBadge status={resultGroup(c)} />
                                 {c.gov_tag && <StatusBadge status="gov_tag" />}
-                                {c.review_tag && (
+                                {c.review_tag && resultGroup(c) === c.status && (
                                   <span title={c.review_note ?? undefined}><StatusBadge status={c.review_tag} /></span>
                                 )}
                                 {c.status_overridden && (

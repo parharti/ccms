@@ -1,27 +1,30 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, CheckCircle2, XCircle, HelpCircle, Clock, Users, Loader2, AlertCircle, Info } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle2, XCircle, HelpCircle, Clock, Users, Loader2, AlertCircle, Info, BadgeCheck, Landmark } from 'lucide-react';
 import { useResults } from '../../hooks/useResults';
 import { useJobProfile } from '../../hooks/useJobProfile';
 import { useScreeningRuns } from '../../hooks/useScreening';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CertificatesCell } from '../../components/CertificationCells';
 import { formatDateTime } from '../../lib/format';
+import { resultGroup } from '../../lib/ranking';
 import { BASE_URL } from '../../lib/api';
 
 const FILTERS = [
   { value: undefined, label: 'All', icon: Users },
   { value: 'eligible', label: 'Eligible', icon: CheckCircle2 },
-  { value: 'not_eligible', label: 'Not eligible', icon: XCircle },
+  { value: 'eligible_with_exception', label: 'Eligible with exception', icon: BadgeCheck },
   { value: 'needs_review', label: 'Needs review', icon: HelpCircle },
+  { value: 'not_eligible', label: 'Not eligible', icon: XCircle },
   { value: 'not_evaluated', label: 'Not screened yet', icon: Clock },
 ] as const;
 
 const SUMMARY_CONFIG = [
   { key: 'total', label: 'Total', color: 'text-foreground', bg: 'bg-accent', border: 'border-border', icon: Users },
   { key: 'eligible', label: 'Eligible', color: 'text-success', bg: 'bg-success/10', border: 'border-success/20', icon: CheckCircle2 },
-  { key: 'not_eligible', label: 'Not eligible', color: 'text-danger', bg: 'bg-danger/10', border: 'border-danger/20', icon: XCircle },
+  { key: 'eligible_with_exception', label: 'Eligible with exception', color: 'text-success', bg: 'bg-success/5', border: 'border-success/20', icon: BadgeCheck },
   { key: 'needs_review', label: 'Needs review', color: 'text-warning', bg: 'bg-warning/10', border: 'border-warning/20', icon: HelpCircle },
+  { key: 'not_eligible', label: 'Not eligible', color: 'text-danger', bg: 'bg-danger/10', border: 'border-danger/20', icon: XCircle },
   { key: 'not_evaluated', label: 'Not screened yet', color: 'text-muted', bg: 'bg-muted/10', border: 'border-border', icon: Clock },
 ];
 
@@ -36,9 +39,11 @@ export const ReportsPage: React.FC = () => {
   const [rankedChoice, setRankedChoice] = useState<boolean | null>(null);
   const ranked = rankedChoice ?? profile?.rank_by_suitability ?? true;
   const setRanked = (value: boolean) => setRankedChoice(value);
+  // Government Relevant Experience is a filter, not a ranking factor.
+  const [govOnly, setGovOnly] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const { data, isLoading } = useResults(profileId, status, runId, ranked);
+  const { data, isLoading } = useResults(profileId, status, runId, ranked, govOnly);
   const { data: screeningRuns } = useScreeningRuns(profileId);
 
   // The export sends the SAME filters as the table query, so the sheet
@@ -51,6 +56,7 @@ export const ReportsPage: React.FC = () => {
       if (status) params.set('status', status);
       if (runId) params.set('run_id', runId);
       params.set('sort', ranked ? 'skill_match' : 'roster');
+      if (govOnly) params.set('gov_only', 'true');
       const url = `${BASE_URL}/jd/profiles/${profileId}/results/export${params.toString() ? `?${params.toString()}` : ''}`;
       const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
@@ -105,7 +111,7 @@ export const ReportsPage: React.FC = () => {
 
       {/* Summary tiles */}
       {data && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {SUMMARY_CONFIG.map(({ key, label, color, bg, border, icon: Icon }) => (
             <div key={key} className={`${bg} border ${border} rounded-lg p-4 flex flex-col gap-2`}>
               <Icon className={`w-4 h-4 ${color}`} />
@@ -124,10 +130,12 @@ export const ReportsPage: React.FC = () => {
         <div>
           <h2 className="text-base font-semibold text-foreground mb-2">What do these results mean?</h2>
           <ul className="flex flex-col gap-1.5 text-sm text-foreground font-normal">
-            <li><span className="font-semibold text-success">Eligible</span> — meets every must-have criterion. Ranked by suitability: skills, experience and desirable items.</li>
-            <li><span className="font-semibold text-warning">Needs manual review</span> — the system could not decide everything, or the candidate narrowly misses an experience must-have. “Strong candidate, with exception” marks near-misses with exceptional skills.</li>
+            <li><span className="font-semibold text-success">Eligible</span> — meets every must-have criterion.</li>
+            <li><span className="font-semibold text-success">Eligible with exception</span> — misses the experience must-have by no more than the post's tolerance, but has strong skills. HR confirms the exception.</li>
+            <li><span className="font-semibold text-warning">Needs manual review</span> — the system could not decide everything (e.g. sheet and resume disagree, resume not retrieved).</li>
             <li><span className="font-semibold text-danger">Not eligible</span> — fails at least one must-have criterion.</li>
             <li><span className="font-semibold text-muted">Not screened yet</span> — screening has not been run for this candidate.</li>
+            <li>Ranking: by group in the order above, then by <span className="font-semibold">suitability score</span> (skills match and desirable items). Tags such as government experience never change the order — use the filter instead.</li>
           </ul>
         </div>
       </div>
@@ -159,9 +167,19 @@ export const ReportsPage: React.FC = () => {
             className={`text-sm font-semibold px-4 py-2.5 rounded-lg border transition-all ${
               ranked ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border text-foreground hover:border-primary/30 bg-card'
             }`}
-            title="Rank best first: eligible, then needs review (strong candidates with an exception on top), then not eligible; highest suitability score first within each"
+            title="Rank best first: eligible, eligible with exception, needs review, not eligible; highest suitability score first within each"
           >
             {ranked ? 'Ranked by suitability' : 'Rank by suitability'}
+          </button>
+          <button
+            onClick={() => setGovOnly(!govOnly)}
+            className={`flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-lg border transition-all ${
+              govOnly ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'border-border text-foreground hover:border-primary/30 bg-card'
+            }`}
+            title="Show only candidates with government / GovTech experience in a role relevant to this post"
+          >
+            <Landmark className="w-4 h-4" />
+            Government experience{data ? ` (${data.summary.gov_tagged})` : ''}
           </button>
           {screeningRuns && screeningRuns.length > 0 && (
             <select
@@ -229,9 +247,11 @@ export const ReportsPage: React.FC = () => {
                     </td>
                     <td className="py-3 px-5">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <StatusBadge status={c.status} />
+                        <span title={resultGroup(c) !== c.status ? c.review_note ?? undefined : undefined}>
+                          <StatusBadge status={resultGroup(c)} />
+                        </span>
                         {c.gov_tag && <StatusBadge status="gov_tag" />}
-                        {c.review_tag && (
+                        {c.review_tag && resultGroup(c) === c.status && (
                           <span title={c.review_note ?? undefined}><StatusBadge status={c.review_tag} /></span>
                         )}
                         {c.status_overridden && (

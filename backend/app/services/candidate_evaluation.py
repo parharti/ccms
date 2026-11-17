@@ -293,14 +293,18 @@ def compute_section_scores(evaluations: list[CriterionEvaluation], criteria_by_i
 def compute_suitability(evaluations: list[CriterionEvaluation], criteria_by_id: dict, profile: JobProfile) -> Optional[int]:
     """
     0-100 weighted score over the post's SOFT sections, used to rank
-    candidates: skills match, experience match, and desirable items.
-    Weights come from the profile and are renormalised over the sections
-    the post actually has. None when no section can be scored.
+    candidates: skills match and desirable items. Weights come from the
+    profile and are renormalised over the sections the post actually has.
+    None when no section can be scored.
+
+    Experience is deliberately left out: its match % is capped at 100, so
+    every candidate who meets the must-have experience scores the same and
+    it would never separate them. Shortfalls are handled by the experience
+    tolerance (near-miss) rule instead.
     """
     sections = compute_section_scores(evaluations, criteria_by_id)
     weights = {
         "skills": profile.weight_skills,
-        "experience": profile.weight_experience,
         "desirable": profile.weight_desirable,
     }
     scored = [(sections[k], w) for k, w in weights.items() if sections[k] is not None and w and w > 0]
@@ -422,12 +426,14 @@ def check_government_experience(candidate: Candidate, profile: JobProfile, cv_co
 
 
 def mismatch_flag(status: str, candidate: Candidate) -> tuple[str, Optional[str], Optional[str]]:
-    """Sheet vs resume mismatch: an otherwise ELIGIBLE candidate whose resume
-    contradicts the sheet goes to needs review, tagged data_mismatch. The
-    score is never lowered and a not-eligible candidate stays not eligible.
-    Returns (status, tag, note); tag/note None when nothing changes."""
+    """Sheet vs resume mismatch: an eligible or needs-review candidate whose
+    resume contradicts the sheet is needs review, tagged data_mismatch (the
+    resume-vs-roster consistency check is the only place mismatches are
+    detected). The score is never lowered and a not-eligible candidate
+    stays not eligible. Returns (status, tag, note); tag/note None when
+    nothing changes."""
     consistency = candidate.resume_consistency or {}
-    if status != "eligible" or consistency.get("overall") != "inconsistent":
+    if status not in ("eligible", "needs_review") or consistency.get("overall") != "inconsistent":
         return status, None, None
     items = [c.get("item") or "item" for c in consistency.get("checks", []) if c.get("verdict") == "inconsistent"]
     return "needs_review", "data_mismatch", "Sheet and resume disagree on: " + "; ".join(items)

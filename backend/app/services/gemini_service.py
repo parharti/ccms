@@ -539,28 +539,31 @@ DECLARED_PRIMARY_OVERRIDE = """
 EVIDENCE-MODE OVERRIDE (takes priority over every rule above that talks
 about proof documents, certificates, marksheets or experience letters):
 This department does NOT collect proof documents. The candidate's DECLARED
-APPLICATION DATA is the primary evidence and the CV/RESUME corroborates it.
-  - A criterion is "pass" when the declared data satisfies it and the
-    resume (if provided) does not contradict it.
+APPLICATION DATA is the evidence; the CV/RESUME only fills facts the
+declared data does not mention.
+  - A criterion is "pass" when the declared data satisfies it, and "fail"
+    when it does not.
+  - Do NOT compare the declared data with the resume or judge whether they
+    agree -- a separate check does that. When both mention the same fact,
+    use the declared data.
   - NEVER return "uncertain" merely because a certificate, marksheet or
     experience letter is absent -- none are collected. Do not write
     "Document incomplete:".
-  - "uncertain" is only for real doubt: the declared data and the resume
-    CONTRADICT each other, or the facts needed are missing/unreadable in
-    both. "fail" when the declared data (confirmed or not contradicted by
-    the resume) does not satisfy the criterion.
+  - "uncertain" is only for when the facts needed are missing or
+    unreadable in both the declared data and the resume.
   - [experience]: take every job period (organisation, designation, dates)
-    from the declared data, falling back to / cross-checking against the
-    resume. Count ONLY periods in roles relevant to the criterion's field
+    from the declared data, falling back to the resume only when the
+    declared data lists no jobs. Count ONLY periods in roles relevant to the criterion's field
     (judge by designation and responsibilities); roles in unrelated fields
     count zero. Sum the matching periods, counting overlaps once. The
     reasoning MUST list every job as counted or excluded (with why) and
     show the total versus the required years. If a declared "total
     experience" figure disagrees with the sum of the listed periods by
     more than a few months, say so in the reasoning.
-  - [education]: the declared degree and discipline are accepted as stated
-    unless the resume contradicts them. Judge whether the degree/discipline
-    satisfies the criterion (e.g. a listed equivalent field counts).
+  - [education]: the declared degree and discipline are accepted as
+    stated (the resume only fills a degree the declared data omits). Judge
+    whether the degree/discipline satisfies the criterion (e.g. a listed
+    equivalent field counts).
   - [skill]: classify each skill against the declared data AND the resume together.
 """
 

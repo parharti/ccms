@@ -23,6 +23,7 @@ const STATUS_LABEL: Record<string, string> = {
   eligible: 'Eligible',
   not_eligible: 'Not eligible',
   needs_review: 'Needs manual review',
+  eligible_with_exception: 'Eligible with exception',
   not_evaluated: 'Not screened yet',
   strong_exception: 'Strong candidate, with exception',
   awaiting_resume: 'Near miss: awaiting resume',
@@ -65,6 +66,7 @@ export function statusTone(status?: string | null): string {
     case 'completed':
     case 'fetched':
     case 'strong_exception':
+    case 'eligible_with_exception':
       return 'bg-success/15 text-success border-success/20';
     case 'gov_tag':
       return 'bg-primary/10 text-primary border-primary/20';

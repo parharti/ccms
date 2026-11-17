@@ -304,9 +304,13 @@ export interface OverrideRequest {
 export interface ResultsSummary {
   total: number;
   eligible: number;
+  /** Needs-review candidates tagged strong_exception (not counted in needs_review). */
+  eligible_with_exception: number;
   not_eligible: number;
   needs_review: number;
   not_evaluated: number;
+  /** Candidates with the Government Relevant Experience tag. */
+  gov_tagged: number;
 }
 
 export interface ResultsResponse {

@@ -38,7 +38,34 @@ def _get_profile_or_404(profile_id: str, db: Session) -> JobProfile:
     return profile
 
 
-_STATUS_RANK = {"eligible": 0, "needs_review": 1, "not_eligible": 2, "not_evaluated": 3}
+# Result groups, best first. "eligible_with_exception" is not a stored
+# status: it is a needs-review candidate tagged strong_exception (misses the
+# experience must-have by no more than the tolerance, with strong skills),
+# shown and ranked as its own group.
+_GROUP_RANK = {
+    "eligible": 0,
+    "eligible_with_exception": 1,
+    "needs_review": 2,
+    "not_eligible": 3,
+    "not_evaluated": 4,
+}
+
+
+def result_group(c: Candidate) -> str:
+    if c.status == "needs_review" and c.review_tag == "strong_exception":
+        return "eligible_with_exception"
+    return c.status
+
+
+def _apply_filters(candidates: list[Candidate], status: Optional[str], gov_only: bool) -> list[Candidate]:
+    """?status= filters by result group (eligible_with_exception included);
+    ?gov_only=true keeps only candidates with the Government Relevant
+    Experience tag. The tag is a filter, never a ranking factor."""
+    if status is not None:
+        candidates = [c for c in candidates if result_group(c) == status]
+    if gov_only:
+        candidates = [c for c in candidates if c.gov_tag]
+    return candidates
 
 
 def _attach_skill_match(db: Session, candidates: list[Candidate]) -> None:
@@ -74,17 +101,15 @@ def _wants_ranking(sort: Optional[str], profile: JobProfile) -> bool:
 
 
 def _rank_candidates(candidates: list[Candidate]) -> list[Candidate]:
-    """Best first: eligible, then needs-review, then not-eligible. Within a
-    group, candidates with the Government Relevant Experience tag come first
-    (only eligible / needs-review ones can have it), then strong candidates
-    with an exception, then higher suitability score, then higher skills
-    match (unscored last). Stable, so ties keep roster order."""
+    """Best first, by group: eligible, eligible with exception, needs review,
+    not eligible, not screened. Within a group only the suitability score
+    decides (highest first); the skills match breaks exact ties (unscored
+    last). Tags (government, close miss, ...) never move a candidate.
+    Stable, so remaining ties keep roster order."""
     return sorted(
         candidates,
         key=lambda c: (
-            _STATUS_RANK.get(c.status, 9),
-            0 if c.gov_tag else 1,
-            0 if c.review_tag in ("strong_exception", "close_miss") else 1,
+            _GROUP_RANK.get(result_group(c), 9),
             -(c.suitability_score if c.suitability_score is not None else -1),
             -(c.skill_match_percentage if c.skill_match_percentage is not None else -1),
         ),
@@ -92,12 +117,15 @@ def _rank_candidates(candidates: list[Candidate]) -> list[Candidate]:
 
 
 def _build_summary(all_candidates: list[Candidate]) -> ResultsSummary:
+    groups = [result_group(c) for c in all_candidates]
     return ResultsSummary(
         total=len(all_candidates),
-        eligible=sum(1 for c in all_candidates if c.status == "eligible"),
-        not_eligible=sum(1 for c in all_candidates if c.status == "not_eligible"),
-        needs_review=sum(1 for c in all_candidates if c.status == "needs_review"),
-        not_evaluated=sum(1 for c in all_candidates if c.status == "not_evaluated"),
+        eligible=groups.count("eligible"),
+        eligible_with_exception=groups.count("eligible_with_exception"),
+        not_eligible=groups.count("not_eligible"),
+        needs_review=groups.count("needs_review"),
+        not_evaluated=groups.count("not_evaluated"),
+        gov_tagged=sum(1 for c in all_candidates if c.gov_tag),
     )
 
 
@@ -107,15 +135,17 @@ def get_results(
     status: Optional[str] = None,
     run_id: Optional[str] = None,
     sort: Optional[str] = None,
+    gov_only: bool = False,
     db: Session = Depends(get_db),
 ):
     """
-    Pass ?sort=skill_match to rank best-first (status bucket, then skills
-    match %) instead of roster order.
+    Pass ?sort=skill_match to rank best-first (result group, then
+    suitability score) instead of roster order. ?gov_only=true keeps only
+    candidates tagged Government Relevant Experience.
 
     Returns a summary of candidate counts by status, plus the candidate
     list in upload (roster Excel) order. Pass ?status=eligible (or
-    not_eligible / needs_review / not_evaluated) to filter to one bucket,
+    not_eligible / needs_review / not_evaluated) (or eligible_with_exception) to filter to one bucket,
     and/or ?run_id=<screening run id> to see only the candidates screened
     in that particular run. The summary counts follow the run filter (but
     not the status filter), so the tiles describe the selected screening.
@@ -132,7 +162,7 @@ def get_results(
         all_candidates = [c for c in all_candidates if c.last_screening_run_id == run_id]
     summary = _build_summary(all_candidates)
 
-    filtered = all_candidates if status is None else [c for c in all_candidates if c.status == status]
+    filtered = _apply_filters(all_candidates, status, gov_only)
     _attach_skill_match(db, filtered)
     if _wants_ranking(sort, profile):
         filtered = _rank_candidates(filtered)
@@ -245,10 +275,12 @@ def export_results(
     status: Optional[str] = None,
     run_id: Optional[str] = None,
     sort: Optional[str] = None,
+    gov_only: bool = False,
     db: Session = Depends(get_db),
 ):
     """
-    Pass ?sort=skill_match to rank best-first instead of roster order.
+    Pass ?sort=skill_match to rank best-first instead of roster order, and
+    ?gov_only=true to export only government-tagged candidates.
 
     Exports candidates as an IHMCL-style Screening Sheet, in upload
     (roster Excel) order. Pass ?status=... to export just one bucket
@@ -264,7 +296,7 @@ def export_results(
     )
     if run_id is not None:
         all_candidates = [c for c in all_candidates if c.last_screening_run_id == run_id]
-    export_candidates = all_candidates if status is None else [c for c in all_candidates if c.status == status]
+    export_candidates = _apply_filters(all_candidates, status, gov_only)
     if _wants_ranking(sort, profile):
         _attach_skill_match(db, export_candidates)
         export_candidates = _rank_candidates(export_candidates)
@@ -365,6 +397,7 @@ def export_results(
     # -- Data rows ------------------------------------------------------------
     status_text = {
         "eligible": "Eligible",
+        "eligible_with_exception": "Eligible with Exception",
         "not_eligible": "Not Eligible",
         "needs_review": "Needs Review",
         "not_evaluated": "Not Screened",
@@ -398,6 +431,8 @@ def export_results(
             remarks = "Meets all essential criteria"
         elif c.status == "not_eligible":
             remarks = f"Not eligible — fails essential: {', '.join(failed)}" if failed else "Not eligible"
+        elif result_group(c) == "eligible_with_exception":
+            remarks = "Eligible with exception (experience near-miss, strong skills)"
         elif c.status == "needs_review":
             remarks = f"Manual review needed: {', '.join(review)}" if review else "Manual review needed"
         else:
@@ -453,7 +488,7 @@ def export_results(
             f"{skill_pct}%" if skill_pct is not None else "—",
             exp_gist,
             _certifications_text(c),
-            status_text.get(c.status, c.status),
+            status_text.get(result_group(c), c.status),
             "; ".join(doc_remarks),
             remarks,
         ]

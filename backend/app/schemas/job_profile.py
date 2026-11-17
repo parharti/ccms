@@ -49,9 +49,9 @@ class JobProfileOut(BaseModel):
     base_age_max: Optional[int] = None
     experience_tolerance_years: float = 2.0
     exception_skills_threshold: int = 80
-    weight_skills: int = 50
-    weight_experience: int = 30
-    weight_desirable: int = 20
+    weight_skills: int = 70
+    weight_experience: int = 30  # unused, see JobProfile.weight_experience
+    weight_desirable: int = 30
     close_miss_skills_min: Optional[int] = None
     close_miss_experience_min: Optional[int] = None
     close_miss_desirable_min: Optional[int] = None

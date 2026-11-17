@@ -39,24 +39,21 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
   const update = useUpdateProfileSettings(profile.id);
   const [tolerance, setTolerance] = useState('2');
   const [threshold, setThreshold] = useState('80');
-  const [wSkills, setWSkills] = useState('50');
-  const [wExperience, setWExperience] = useState('30');
-  const [wDesirable, setWDesirable] = useState('20');
+  const [wSkills, setWSkills] = useState('70');
+  const [wDesirable, setWDesirable] = useState('30');
   const [rankDefault, setRankDefault] = useState(true);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     setTolerance(String(profile.experience_tolerance_years ?? 2));
     setThreshold(String(profile.exception_skills_threshold ?? 80));
-    setWSkills(String(profile.weight_skills ?? 50));
-    setWExperience(String(profile.weight_experience ?? 30));
-    setWDesirable(String(profile.weight_desirable ?? 20));
+    setWSkills(String(profile.weight_skills ?? 70));
+    setWDesirable(String(profile.weight_desirable ?? 30));
     setRankDefault(profile.rank_by_suitability ?? true);
   }, [
     profile.experience_tolerance_years,
     profile.exception_skills_threshold,
     profile.weight_skills,
-    profile.weight_experience,
     profile.weight_desirable,
     profile.rank_by_suitability,
   ]);
@@ -69,7 +66,6 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
         experience_tolerance_years: Number(tolerance),
         exception_skills_threshold: Number(threshold),
         weight_skills: Number(wSkills),
-        weight_experience: Number(wExperience),
         weight_desirable: Number(wDesirable),
         rank_by_suitability: rankDefault,
       });
@@ -89,9 +85,10 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
       </div>
       <p className="text-sm text-muted font-normal leading-relaxed">
         <span className="font-semibold text-foreground">Must-have</span> criteria decide eligibility: failing one means
-        not eligible. Everything else is <span className="font-semibold text-foreground">soft</span> — skills,
-        experience depth and desirable items are scored and used to rank eligible candidates. Gemini marks each
-        criterion from the JD's own wording; change it with the Must-have tick below.
+        not eligible. Everything else is <span className="font-semibold text-foreground">soft</span> — skills and
+        desirable items are scored and used to rank candidates within each result group. Experience is not scored:
+        meeting the requirement is a must-have, and a small shortfall is handled by the tolerance below. Gemini marks
+        each criterion from the JD's own wording; change it with the Must-have tick below.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -112,10 +109,9 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
 
       <div>
         <p className="text-sm font-semibold text-foreground mb-2">Ranking weights (suitability score)</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NumberField label="Skills" hint="Skills match %" value={wSkills} onChange={setWSkills} />
-          <NumberField label="Experience" hint="Experience match %" value={wExperience} onChange={setWExperience} />
-          <NumberField label="Desirable items" hint="Preferred degrees etc." value={wDesirable} onChange={setWDesirable} />
+          <NumberField label="Desirable items" hint="Preferred degrees, certificates etc." value={wDesirable} onChange={setWDesirable} />
         </div>
       </div>
 
