@@ -1,0 +1,9 @@
+.git
+.env
+**/.env
+backend/venv
+backend/storage
+**/__pycache__
+**/*.pyc
+frontend
+demo
