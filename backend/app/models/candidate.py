@@ -59,6 +59,8 @@ class Candidate(Base):
     # can skip evaluation (instead of wasting an LLM call) for candidates
     # whose documents are missing/incomplete.
     #   roster_only           -> sheet row only; documents/resume come later
+    #   resume_only           -> ZIP of resumes, no roster: the resume is the
+    #                            whole truth (details are read from it)
     #   documents_complete    -> every expected document was found
     #   documents_incomplete  -> some documents matched, some missing
     #   no_documents_found    -> ZIP extracted but nothing matched at all

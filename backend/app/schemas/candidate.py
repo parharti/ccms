@@ -113,4 +113,8 @@ class CandidateUploadSummary(BaseModel):
     no_documents_found: int
     excel_row_not_found: int
     corrupt_zip: int
+    # Roster + resumes ZIP upload only: how many resumes were matched to a
+    # roster row, and the resume files that matched no row (or several).
+    resumes_matched: Optional[int] = None
+    unmatched_files: List[str] = []
     candidates: List[CandidateOut]

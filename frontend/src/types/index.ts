@@ -177,6 +177,9 @@ export interface CandidateUploadSummary {
   no_documents_found: number;
   excel_row_not_found: number;
   corrupt_zip: number;
+  /** Roster + resumes ZIP upload only. */
+  resumes_matched?: number | null;
+  unmatched_files?: string[];
   candidates: Candidate[];
 }
 

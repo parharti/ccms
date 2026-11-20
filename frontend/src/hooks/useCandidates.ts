@@ -10,17 +10,36 @@ export function useCandidates(profileId?: string) {
   });
 }
 
+/** What HR is uploading:
+ *  roster          sheet with resume links (resumes fetched later)
+ *  resumes         ZIP of resumes only, no sheet (resume = whole truth)
+ *  roster_resumes  sheet + ZIP of resumes, matched by name / email / phone */
+export type UploadMode = 'roster' | 'resumes' | 'roster_resumes';
+
 export function useUploadCandidates(profileId?: string) {
   const queryClient = useQueryClient();
 
-  return useMutation<CandidateUploadSummary, Error, { excelFile: File; masterZipFile?: File | null; templateId?: string }>({
-    mutationFn: ({ excelFile, masterZipFile, templateId }) => {
+  return useMutation<
+    CandidateUploadSummary,
+    Error,
+    { mode?: UploadMode; excelFile?: File | null; resumesZip?: File | null; masterZipFile?: File | null; templateId?: string }
+  >({
+    mutationFn: ({ mode, excelFile, resumesZip, masterZipFile, templateId }) => {
+      const base = `/jd/profiles/${profileId}/candidates`;
       const formData = new FormData();
-      formData.append('excel_file', excelFile);
+      if (mode === 'resumes') {
+        formData.append('resumes_zip', resumesZip!);
+        return api.post(`${base}/upload-resumes`, formData, { isFormData: true });
+      }
+      formData.append('excel_file', excelFile!);
+      if (mode === 'roster_resumes') {
+        formData.append('resumes_zip', resumesZip!);
+        return api.post(`${base}/upload-roster-resumes`, formData, { isFormData: true });
+      }
       // No ZIP = roster-only upload: the sheet alone is enough, resumes are
       // fetched later from its links (see useFetchResumes).
       if (!masterZipFile) {
-        return api.post(`/jd/profiles/${profileId}/candidates/upload-roster`, formData, { isFormData: true });
+        return api.post(`${base}/upload-roster`, formData, { isFormData: true });
       }
       formData.append('master_zip_file', masterZipFile);
       if (templateId) formData.append('template_id', templateId);

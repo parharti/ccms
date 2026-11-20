@@ -161,6 +161,41 @@ gsutil cp /var/backups/storage-latest.tar.gz gs://<PROJECT_ID>-autorecruit-backu
 Also enable a weekly VM snapshot schedule (Compute Engine -> Snapshots ->
 snapshot schedules) as a belt-and-braces recovery path.
 
+## Free deployment on Render + Aiven (demo use)
+
+`render.yaml` deploys the backend (free web service) and the frontend
+(free static site) on Render; Postgres runs on Aiven's free plan.
+
+**Free-tier limits -- fine for a demo, not for real screening runs:**
+Render free services sleep after ~15 min idle (first request then takes
+~1 min, and any in-progress screening is killed), the backend disk is wiped
+on every restart/redeploy (uploaded JD PDFs and candidate documents under
+`storage/` are lost; database rows survive on Aiven), and very large ZIP
+uploads may fail. For real use, run the docker-compose stack above on an
+always-on VM.
+
+1. **Aiven**: create a PostgreSQL service on the Free plan and copy its
+   Service URI (`postgres://avnadmin:...@....aivencloud.com:PORT/defaultdb?sslmode=require`).
+   It can be pasted as-is; the backend converts the `postgres://` prefix.
+2. **Render**: New -> Blueprint -> select this repo. When prompted, fill in
+   `DATABASE_URL` (the Aiven URI), `GEMINI_API_KEY`, and `FRONTEND_ORIGINS`
+   (the frontend's URL, e.g. `https://ccms-frontend.onrender.com`).
+   `SECRET_KEY` is generated automatically.
+3. If Render gave the backend a URL other than
+   `https://ccms-backend.onrender.com`, update the `/api/*` rewrite
+   destination in `render.yaml` (or in the static site's Redirects/Rewrites
+   settings) and redeploy the frontend. Likewise fix `FRONTEND_ORIGINS` if
+   the frontend URL differs.
+4. **First HR account** -- run the script locally against Aiven (Render's
+   shell is a paid feature):
+
+   ```bash
+   cd backend
+   DATABASE_URL='<aiven uri>' venv/Scripts/python.exe scripts/create_hr_user.py hr@yourcompany.com
+   ```
+
+Open the frontend URL and log in. Tables are created on first backend start.
+
 ## Troubleshooting
 
 - **Backend restarting on boot** -- `docker compose logs backend`; usually a

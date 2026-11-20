@@ -14,6 +14,14 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg2://postgres:postgres@localhost:5432/ihmcl_hr",
 )
 
+# Hosted providers (Aiven, Render, Heroku) hand out "postgres://..." URIs,
+# which SQLAlchemy rejects -- accept them as-is so the URI can be pasted
+# straight from the provider's console.
+for _prefix in ("postgres://", "postgresql://"):
+    if DATABASE_URL.startswith(_prefix):
+        DATABASE_URL = "postgresql+psycopg2://" + DATABASE_URL[len(_prefix):]
+        break
+
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -568,6 +568,125 @@ declared data does not mention.
 """
 
 
+# Appended to the batch prompt for candidates uploaded as a ZIP of resumes
+# with NO roster (evidence_mode "resume_only"): the resume is the whole truth.
+RESUME_ONLY_OVERRIDE = """
+
+EVIDENCE-MODE OVERRIDE (takes priority over every rule above that talks
+about declared data, proof documents, certificates, marksheets or
+experience letters):
+There is NO application form, roster row or proof document for this
+candidate. The CV/RESUME is the ONLY and the COMPLETE evidence. Treat what
+it states as true. Any other files listed under the documents section are
+the candidate's own supporting material -- read them like the resume.
+  - A criterion is "pass" when the resume satisfies it, and "fail" when the
+    resume shows it is not met OR does not mention what the criterion needs
+    (e.g. no qualifying degree listed means the degree requirement fails).
+  - NEVER return "uncertain" because a certificate, marksheet, experience
+    letter or declared data is absent -- none exist in this mode. Do not
+    write "Document incomplete:" and do not compare with declared data.
+  - "uncertain" is ONLY for a resume that is empty, unreadable or so
+    garbled the facts cannot be read.
+  - [experience]: take every job period (organisation, designation, dates)
+    from the resume; a job shown as current ("present", "till date") runs
+    until today. Count ONLY periods in roles relevant to the criterion's
+    field (judge by designation and responsibilities); unrelated roles count
+    zero. Sum the matching periods, counting overlaps once. The reasoning
+    MUST list every job as counted or excluded (with why) and show the total
+    versus the required years. documented_years is that total.
+  - [education]: the degree and discipline stated in the resume are
+    accepted as stated. Judge whether they satisfy the criterion (a listed
+    equivalent field counts).
+  - [skill]: classify each skill against the resume; "source" is "resume".
+  - Citations point at the resume's file name and page.
+"""
+
+
+RESUME_DETAILS_PROMPT_TEMPLATE = """
+You are reading a job candidate's CV/resume for a recruitment screening
+system. Copy out the candidate's personal details exactly as the resume
+states them.
+
+CV / RESUME:
+---
+{cv_context}
+---
+
+RULES:
+- Use ONLY what is written in the resume; never guess or infer.
+- "dob": the date of birth in YYYY-MM-DD form. If only an age is written,
+  or no date of birth at all, use null.
+- "gender": "Male", "Female" or "Other" only when the resume states it; else null.
+- "category": a reservation category (e.g. SC, ST, OBC, EWS, General) only
+  when the resume states it; else null.
+- Any field not present in the resume is null.
+
+Return ONLY valid JSON, no markdown, no backticks, using exactly this shape:
+
+{{
+  "name": "<full name or null>",
+  "email": "<email or null>",
+  "phone": "<phone number or null>",
+  "dob": "<YYYY-MM-DD or null>",
+  "gender": "<Male | Female | Other | null>",
+  "category": "<category or null>"
+}}
+"""
+
+
+def extract_resume_details_with_gemini(cv_context: str, max_attempts: int = 3) -> dict:
+    """{"name", "email", "phone", "dob", "gender", "category"} read from the
+    resume (each a string or None). Used for resume-only candidates, who
+    have no roster row to take these from. Raises GeminiParsingError when no
+    valid response comes back after all retries."""
+    if not GEMINI_API_KEY:
+        raise GeminiParsingError(
+            "GEMINI_API_KEY environment variable is not set. "
+            "Set it in a .env file or in the environment."
+        )
+
+    client = _get_client()
+    prompt = RESUME_DETAILS_PROMPT_TEMPLATE.format(cv_context=cv_context)
+    limits = {"name": 300, "email": 300, "phone": 50, "dob": 20, "gender": 20, "category": 100}
+
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=GEMINI_GENERATION_CONFIG,
+            )
+            raw = (response.text or "").strip()
+            if raw.startswith("```"):
+                raw = raw.strip("`")
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                raise ValueError("resume details response is not a JSON object")
+            details = {}
+            for key, limit in limits.items():
+                value = parsed.get(key)
+                text = str(value).strip() if value is not None else ""
+                details[key] = text[:limit] if text and text.lower() not in ("null", "none", "n/a") else None
+            return details
+        except (json.JSONDecodeError, ValueError) as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
+            if not _is_retryable(e):
+                break
+
+        if attempt < max_attempts:
+            _sleep_before_retry(attempt, last_error)
+
+    raise GeminiParsingError(
+        f"Gemini did not return valid resume details after {max_attempts} attempts: {last_error}"
+    )
+
+
 def _criterion_line(number: int, criterion: dict) -> str:
     """One numbered line of the batch prompt's criteria list. A skill
     criterion also lists its individual skills (S1, S2, ...) to classify."""
@@ -728,6 +847,8 @@ def evaluate_criteria_batch_with_gemini(
     )
     if evidence_mode == "declared_primary":
         prompt += DECLARED_PRIMARY_OVERRIDE
+    elif evidence_mode == "resume_only":
+        prompt += RESUME_ONLY_OVERRIDE
     client = _get_client()
 
     batch_error: Exception | None = None
@@ -761,9 +882,21 @@ def evaluate_criteria_batch_with_gemini(
     # Fallback: the slower but battle-tested single-criterion path. The
     # single-criterion prompt has no percentage contract, so experience and
     # skill criteria keep their hard rules but lose the percentage (None).
+    # Departments without proof documents keep their evidence in the declared
+    # data and the resume -- the fallback must see that text too, or every
+    # criterion would come back "no evidence".
+    fallback_context = document_context
+    if evidence_mode != "documents_primary":
+        fallback_context = "\n\n".join(
+            part for part in (
+                f"DECLARED APPLICATION DATA:\n{declared_data}" if declared_data else "",
+                f"CV / RESUME (treat as evidence):\n{cv_context}" if cv_context else "",
+                document_context,
+            ) if part
+        )
     fallback_results = []
     for criterion in criteria:
-        result = evaluate_criterion_with_gemini(document_context, criterion["description"])
+        result = evaluate_criterion_with_gemini(fallback_context, criterion["description"])
         result["match_percentage"] = None
         if criterion["type"] == "skill":
             result["result"] = "pass"  # skills never reject

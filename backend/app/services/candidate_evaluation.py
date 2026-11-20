@@ -33,10 +33,15 @@ from app.services.gemini_service import (
     extract_cv_certifications_with_gemini,
     check_resume_roster_consistency_with_gemini,
     classify_government_experience_with_gemini,
+    extract_resume_details_with_gemini,
 )
 from app.services.criteria_utils import rescore_skill_marks, score_skill_matches, skill_score_summary
-from app.services.pdf_extraction import extract_marked_pdf_text_with_ocr, pdf_text_is_meaningful
-from app.services.age_relaxation import evaluate_age_criterion, parse_age_limits_from_text
+from app.services.pdf_extraction import (
+    extract_marked_pdf_text_with_ocr, extract_text_from_docx, pdf_text_is_meaningful,
+)
+from app.services.age_relaxation import (
+    evaluate_age_criterion, normalize_candidate_category, parse_age_limits_from_text,
+)
 from sqlalchemy import func
 
 
@@ -46,8 +51,9 @@ from sqlalchemy import func
 PREFILTER_BY_AGE = os.getenv("PREFILTER_BY_AGE", "1") != "0"
 
 # Ingestion states that can be screened: every expected document was matched,
-# or a roster-only candidate is judged from the sheet row alone.
-SCREENABLE_STATUSES = ("documents_complete", "roster_only")
+# a roster-only candidate is judged from the sheet row alone, or a
+# resume-only candidate (ZIP of resumes, no roster) is judged from the resume.
+SCREENABLE_STATUSES = ("documents_complete", "roster_only", "resume_only")
 
 
 def criteria_fingerprint(profile: JobProfile) -> str:
@@ -154,6 +160,18 @@ def build_document_context(documents: list[CandidateDocument]) -> str:
     for doc in documents:
         is_pdf = doc.file_path.lower().endswith(".pdf")
 
+        if doc.file_path.lower().endswith(".docx"):
+            # Word resumes (resume-only uploads): plain text, read once.
+            if doc.extracted_text is None and os.path.exists(doc.file_path):
+                try:
+                    text = extract_text_from_docx(doc.file_path)
+                    doc.extracted_text = f"--- DOCUMENT: {doc.original_filename} | PAGE: 1 ---\n{text}\n"
+                except Exception:
+                    doc.extracted_text = ""
+            if doc.extracted_text:
+                context_parts.append(doc.extracted_text)
+            continue
+
         if not is_pdf:
             # Photos/signatures carry no evaluable text.
             if doc.extracted_text is None:
@@ -192,8 +210,11 @@ def build_declared_data_context(candidate: Candidate) -> str:
     -- so the model needs the declarations alongside the document proof.
 
     Document URL values are skipped: they're internal file references, not
-    something the candidate declared.
+    something the candidate declared. Resume-only candidates have no
+    declared data at all -- the resume is their only evidence.
     """
+    if candidate.ingestion_status == "resume_only":
+        return ""
     data = candidate.raw_excel_data or {}
     lines = []
     for key, value in data.items():
@@ -399,6 +420,29 @@ def check_resume_consistency(candidate: Candidate, profile: JobProfile, cv_conte
         return None
 
 
+def fill_details_from_resume(candidate: Candidate) -> None:
+    """Resume-only candidates: name, email, phone, DOB, gender and category
+    read from the resume (one small Gemini call). Fields the resume doesn't
+    state keep their current value (the name guessed from the file name).
+    A failure is swallowed -- screening still runs, the age check simply
+    goes to review without a DOB."""
+    cv_context = build_document_context(
+        [d for d in candidate.documents if d.document_type == "resume_cv"]
+    )
+    if not cv_context.strip():
+        return
+    try:
+        details = extract_resume_details_with_gemini(cv_context)
+    except Exception:
+        return
+    for field in ("name", "email", "phone", "dob", "gender"):
+        if details.get(field):
+            setattr(candidate, field, details[field])
+    if details.get("category"):
+        candidate.raw_category = details["category"]
+        candidate.normalized_category = normalize_candidate_category(details["category"])
+
+
 def _post_summary(profile: JobProfile) -> str:
     """The post's title plus its experience and skill requirements -- what
     'relevant to the post' is judged against."""
@@ -512,6 +556,12 @@ def evaluate_candidate(db, candidate: Candidate, profile: JobProfile) -> list[Cr
     # prompt separately, where it fills gaps in the declared application
     # data (facts the Excel row doesn't mention). A claim satisfied only
     # by the CV with no proving document ends in "needs_review".
+    resume_only = candidate.ingestion_status == "resume_only"
+    if resume_only:
+        # No roster row: name, contact details and the DOB the age check
+        # needs come from the resume itself.
+        fill_details_from_resume(candidate)
+
     age_relaxation_rules_for_lookup = [
         {"normalized_category": r.normalized_category, "relaxation_text": r.relaxation_text}
         for r in profile.age_relaxation_rules
@@ -556,6 +606,9 @@ def evaluate_candidate(db, candidate: Candidate, profile: JobProfile) -> list[Cr
         # Roster-only candidate: the sheet row is the evidence and the
         # resume (when fetched) corroborates it; no proof documents exist.
         evidence_mode = "declared_primary"
+    if resume_only:
+        # ZIP of resumes, no roster: the resume is the whole truth.
+        evidence_mode = "resume_only"
     batch_results = evaluate_criteria_batch_with_gemini(
         document_context,
         [

@@ -1,5 +1,16 @@
 """
-Roster-only candidate flow (no per-candidate documents ZIP required):
+Candidate uploads that need no department template. HR picks one of:
+
+  roster only        POST upload-roster          sheet with resume links
+  resumes ZIP only   POST upload-resumes         no sheet: every resume is a
+                                                 candidate and is the whole
+                                                 truth about them
+  roster + ZIP       POST upload-roster-resumes  sheet (e.g. a Google Form
+                                                 export) plus a ZIP of
+                                                 resumes, matched to rows by
+                                                 name / email / phone
+
+Roster-only flow (no per-candidate documents ZIP required):
 
   1. POST  upload-roster    sheet only -> candidates, screenable right away
   2. (HR runs the normal batch screening: the sheet row alone is the evidence)
@@ -28,6 +39,7 @@ from app.models.job_profile import JobProfile
 from app.routers.candidates import UPLOAD_DIR, _delete_candidate_screening_data
 from app.schemas.candidate import CandidateUploadSummary
 from app.services.auth_service import get_current_hr_user
+from app.services.candidate_ingestion import process_resume_zip
 from app.services.candidate_evaluation import evaluate_candidate
 from app.services.resume_fetcher import ResumeFetchError, fetch_resume_pdf
 from app.services.roster_ingestion import parse_roster
@@ -50,32 +62,43 @@ def _get_profile(db: Session, profile_id: str) -> JobProfile:
     return profile
 
 
-@router.post("/upload-roster", response_model=CandidateUploadSummary)
-def upload_roster(
-    profile_id: str,
-    excel_file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    """Sheet-only upload. Plain `def` so parsing runs on a worker thread."""
-    profile = _get_profile(db, profile_id)
+def _save_upload(upload: UploadFile, batch_dir: str) -> str:
+    """Streams an uploaded file into batch_dir (multi-GB ZIPs must not be
+    read into memory) and returns its path."""
+    path = os.path.join(batch_dir, os.path.basename(upload.filename or "upload"))
+    with open(path, "wb") as f:
+        shutil.copyfileobj(upload.file, f, length=1024 * 1024)
+    return path
 
+
+def _new_batch_dir() -> str:
     batch_dir = os.path.join(UPLOAD_DIR, str(uuid.uuid4()))
     os.makedirs(batch_dir, exist_ok=True)
-    excel_path = os.path.join(batch_dir, os.path.basename(excel_file.filename))
-    with open(excel_path, "wb") as f:
-        shutil.copyfileobj(excel_file.file, f, length=1024 * 1024)
+    return batch_dir
 
-    try:
-        rows = parse_roster(excel_path)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Could not parse the candidate data file: {e}")
 
-    # Roster candidates are judged on the sheet row (+ resume once fetched);
-    # no department template is involved.
-    profile.department_template_id = None
+def _reset_for_reupload(db: Session, candidate: Candidate) -> None:
+    """The same candidate uploaded again: old results, override and
+    documents go -- they belonged to the previous upload."""
+    _delete_candidate_screening_data(db, candidate.id)
+    candidate.computed_status = None
+    candidate.status = "not_evaluated"
+    candidate.status_overridden = False
+    candidate.override_reason = None
+    candidate.overridden_by = None
+    candidate.overridden_at = None
+    candidate.cv_certifications = None
+    candidate.has_cyber_security_certification = None
+    candidate.resume_consistency = None
+    candidate.gov_experience, candidate.gov_relevant_experience = None, None
+    candidate.documents.clear()
 
+
+def _upsert_candidates(
+    db: Session, profile: JobProfile, rows: list[tuple[str, dict]]
+) -> tuple[list[Candidate], int]:
+    """(external_id, fields) per candidate -> created/replaced Candidate rows
+    (flushed, not committed) and how many replaced an existing record."""
     existing_by_id: dict[str, list[Candidate]] = {}
     for c in (
         db.query(Candidate)
@@ -87,9 +110,46 @@ def upload_roster(
 
     candidates: list[Candidate] = []
     replaced = 0
-    for r in rows:
-        fetch_status = "pending" if r["resume_link"] else "no_link"
-        fields = dict(
+    for external_id, fields in rows:
+        found = existing_by_id.get(external_id)
+        if found:
+            # Same candidate re-uploaded: replace their record and wipe the
+            # old results/resume, exactly like the ZIP upload does.
+            candidate = found[0]
+            for duplicate in found[1:]:
+                _delete_candidate_screening_data(db, duplicate.id)
+                db.delete(duplicate)
+            _reset_for_reupload(db, candidate)
+            for key, value in fields.items():
+                setattr(candidate, key, value)
+            replaced += 1
+        else:
+            candidate = Candidate(job_profile_id=profile.id, external_id=external_id, **fields)
+            db.add(candidate)
+        candidates.append(candidate)
+    db.flush()
+    return candidates, replaced
+
+
+def _blank_screening_fields() -> dict:
+    return dict(review_tag=None, review_note=None, suitability_score=None)
+
+
+def _ingest_roster(db: Session, profile: JobProfile, excel_path: str) -> tuple[list[Candidate], int]:
+    """Parses the sheet and upserts one roster_only candidate per row."""
+    try:
+        rows = parse_roster(excel_path)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not parse the candidate data file: {e}")
+
+    # Roster candidates are judged on the sheet row (+ resume); no
+    # department template is involved.
+    profile.department_template_id = None
+
+    return _upsert_candidates(db, profile, [
+        (r["external_id"], dict(
             name=r["name"],
             roster_position=r["roster_position"],
             email=r["email"],
@@ -101,40 +161,24 @@ def upload_roster(
             raw_excel_data=r["raw_excel_data"],
             ingestion_status="roster_only",
             resume_link=r["resume_link"],
-            resume_fetch_status=fetch_status,
+            resume_fetch_status="pending" if r["resume_link"] else "no_link",
             resume_fetch_error=None,
-            review_tag=None,
-            review_note=None,
-            suitability_score=None,
-        )
+            **_blank_screening_fields(),
+        ))
+        for r in rows
+    ])
 
-        found = existing_by_id.get(r["external_id"])
-        if found:
-            # Same candidate re-uploaded: replace their record and wipe the
-            # old results/resume, exactly like the ZIP upload does.
-            candidate = found[0]
-            for duplicate in found[1:]:
-                _delete_candidate_screening_data(db, duplicate.id)
-                db.delete(duplicate)
-            _delete_candidate_screening_data(db, candidate.id)
-            for key, value in fields.items():
-                setattr(candidate, key, value)
-            candidate.computed_status = None
-            candidate.status = "not_evaluated"
-            candidate.status_overridden = False
-            candidate.override_reason = None
-            candidate.overridden_by = None
-            candidate.overridden_at = None
-            candidate.cv_certifications = None
-            candidate.has_cyber_security_certification = None
-            candidate.resume_consistency = None
-            candidate.gov_experience, candidate.gov_relevant_experience = None, None
-            candidate.documents.clear()
-            replaced += 1
-        else:
-            candidate = Candidate(job_profile_id=profile.id, external_id=r["external_id"], **fields)
-            db.add(candidate)
-        candidates.append(candidate)
+
+@router.post("/upload-roster", response_model=CandidateUploadSummary)
+def upload_roster(
+    profile_id: str,
+    excel_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Sheet-only upload. Plain `def` so parsing runs on a worker thread."""
+    profile = _get_profile(db, profile_id)
+    excel_path = _save_upload(excel_file, _new_batch_dir())
+    candidates, replaced = _ingest_roster(db, profile, excel_path)
 
     db.commit()
     for c in candidates:
@@ -150,6 +194,126 @@ def upload_roster(
         no_documents_found=0,
         excel_row_not_found=0,
         corrupt_zip=0,
+        candidates=candidates,
+    )
+
+
+@router.post("/upload-resumes", response_model=CandidateUploadSummary)
+def upload_resumes_only(
+    profile_id: str,
+    resumes_zip: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    No roster: a ZIP of resumes (loose PDF/DOCX files, or one folder per
+    candidate). Every resume becomes a candidate and is the WHOLE truth
+    about them -- there is no sheet to compare it with. Screening makes a
+    Gemini call per resume, which also reads the name, contact details and
+    date of birth from it.
+    """
+    profile = _get_profile(db, profile_id)
+    batch_dir = _new_batch_dir()
+    zip_path = _save_upload(resumes_zip, batch_dir)
+
+    try:
+        results = process_resume_zip(zip_path, os.path.join(batch_dir, "documents"))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=422, detail="The uploaded file is not a valid ZIP.")
+    if not results:
+        raise HTTPException(status_code=422, detail="No PDF or Word (.docx) resumes were found in the ZIP.")
+
+    profile.department_template_id = None
+    candidates, replaced = _upsert_candidates(db, profile, [
+        (r["external_id"], dict(
+            name=r["name"],
+            roster_position=position,
+            email=None,
+            phone=None,
+            dob=None,
+            gender=None,
+            raw_category=None,
+            normalized_category=None,
+            raw_excel_data=None,
+            ingestion_status=r["ingestion_status"],
+            resume_link=None,
+            resume_fetch_status=None,
+            resume_fetch_error=None,
+            **_blank_screening_fields(),
+        ))
+        for position, r in enumerate(results, start=1)
+    ])
+
+    for candidate, r in zip(candidates, results):
+        for doc_type, local_path in r["matched_documents"].items():
+            readable = local_path.lower().endswith((".pdf", ".docx"))
+            db.add(CandidateDocument(
+                candidate_id=candidate.id,
+                document_type=doc_type,
+                file_path=local_path,
+                original_filename=os.path.basename(local_path),
+                extracted_text=None if readable else "",  # read at screening time
+            ))
+
+    db.commit()
+    for c in candidates:
+        db.refresh(c)
+
+    with_resume = sum(1 for r in results if r["ingestion_status"] == "resume_only")
+    return CandidateUploadSummary(
+        job_profile_id=profile.id,
+        total_candidates_found=len(candidates),
+        replaced_candidates=replaced,
+        documents_complete=with_resume,
+        documents_incomplete=0,
+        no_documents_found=len(results) - with_resume,
+        excel_row_not_found=0,
+        corrupt_zip=0,
+        candidates=candidates,
+    )
+
+
+@router.post("/upload-roster-resumes", response_model=CandidateUploadSummary)
+def upload_roster_with_resumes(
+    profile_id: str,
+    excel_file: UploadFile = File(...),
+    resumes_zip: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Roster (e.g. a Google Form export) + a ZIP of resumes in one go. Each
+    resume is matched to its row by the email, phone or full name in the
+    file name. Matched candidates are screened on the row with the resume
+    alongside (a sheet-vs-resume mismatch is flagged); unmatched rows are
+    screened on the row alone and can still have their resume fetched from
+    a link in the sheet later.
+    """
+    profile = _get_profile(db, profile_id)
+    batch_dir = _new_batch_dir()
+    excel_path = _save_upload(excel_file, batch_dir)
+    zip_path = _save_upload(resumes_zip, batch_dir)
+
+    candidates, replaced = _ingest_roster(db, profile, excel_path)
+    try:
+        matched, unmatched = _attach_resumes_from_zip(db, zip_path, candidates)
+    except zipfile.BadZipFile:
+        db.rollback()
+        raise HTTPException(status_code=422, detail="The uploaded resumes file is not a valid ZIP.")
+
+    db.commit()
+    for c in candidates:
+        db.refresh(c)
+
+    return CandidateUploadSummary(
+        job_profile_id=profile.id,
+        total_candidates_found=len(candidates),
+        replaced_candidates=replaced,
+        documents_complete=len(candidates),
+        documents_incomplete=0,
+        no_documents_found=0,
+        excel_row_not_found=0,
+        corrupt_zip=0,
+        resumes_matched=len(matched),
+        unmatched_files=unmatched,
         candidates=candidates,
     )
 
@@ -358,28 +522,8 @@ def upload_resumes_zip(
         shutil.copyfileobj(resumes_zip.file, f, length=1024 * 1024)
 
     candidates = db.query(Candidate).filter(Candidate.job_profile_id == profile_id).all()
-    matched: list[str] = []
-    unmatched: list[str] = []
-    seen: set[str] = set()
-
     try:
-        with zipfile.ZipFile(zip_path) as zf:
-            for entry in zf.namelist():
-                filename = os.path.basename(entry.replace("\\", "/"))
-                if not filename or not filename.lower().endswith(".pdf"):
-                    continue
-                candidate = _match_candidate(os.path.splitext(filename)[0], candidates)
-                if candidate is None or candidate.id in seen:
-                    unmatched.append(filename)
-                    continue
-                seen.add(candidate.id)
-
-                target = os.path.join(UPLOAD_DIR, "resumes", candidate.id, "resume.pdf")
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                with zf.open(entry) as src, open(target, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
-                _store_resume(db, candidate, target, filename)
-                matched.append(candidate.id)
+        matched, unmatched = _attach_resumes_from_zip(db, zip_path, candidates)
     except zipfile.BadZipFile:
         raise HTTPException(status_code=422, detail="The uploaded file is not a valid ZIP.")
 
@@ -387,6 +531,40 @@ def upload_resumes_zip(
     if matched:
         background_tasks.add_task(_rescreen_candidates, profile_id, matched)
     return {"matched": len(matched), "unmatched_files": unmatched}
+
+
+def _attach_resumes_from_zip(
+    db: Session, zip_path: str, candidates: list[Candidate]
+) -> tuple[list[str], list[str]]:
+    """Stores each PDF/DOCX in the ZIP as the resume of the one candidate
+    whose email, phone or full name is in its file name. Returns (matched
+    candidate ids, file names that matched nobody or were ambiguous).
+    Raises zipfile.BadZipFile for a broken ZIP."""
+    matched: list[str] = []
+    unmatched: list[str] = []
+    seen: set[str] = set()
+    with zipfile.ZipFile(zip_path) as zf:
+        for entry in zf.namelist():
+            norm = entry.replace("\\", "/")
+            filename = os.path.basename(norm)
+            if not filename or "__MACOSX" in norm or filename.startswith("."):
+                continue
+            if not filename.lower().endswith((".pdf", ".docx")):
+                continue
+            candidate = _match_candidate(os.path.splitext(filename)[0], candidates)
+            if candidate is None or candidate.id in seen:
+                unmatched.append(filename)
+                continue
+            seen.add(candidate.id)
+
+            extension = os.path.splitext(filename)[1].lower()
+            target = os.path.join(UPLOAD_DIR, "resumes", candidate.id, f"resume{extension}")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with zf.open(entry) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            _store_resume(db, candidate, target, filename)
+            matched.append(candidate.id)
+    return matched, unmatched
 
 
 def _rescreen_candidates(profile_id: str, candidate_ids: list[str]) -> None:

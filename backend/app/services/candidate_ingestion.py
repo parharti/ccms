@@ -25,6 +25,7 @@ against real IHMCL export data before being wired into this service.
 import os
 import io
 import json
+import re
 import shutil
 import uuid
 import zipfile
@@ -361,6 +362,130 @@ def _process_candidate_folders(
         results.append(_build_candidate_result(candidate_row, candidate_id, candidate_dir, config))
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Resumes-only upload: no roster at all. Each resume in the ZIP is one
+# candidate, and the resume is the whole truth about them.
+# ---------------------------------------------------------------------------
+
+# Files whose text screening can read (build_document_context).
+RESUME_EXTENSIONS = (".pdf", ".docx")
+DEFAULT_RESUME_PATTERNS = ("resume", "cv", "biodata", "bio-data", "curriculum")
+_JUNK_NAMES = ("thumbs.db", "desktop.ini")
+
+
+def _is_junk_entry(parts: list[str]) -> bool:
+    """macOS/Windows metadata that zipping a folder drags along."""
+    return (
+        any(p == "__MACOSX" for p in parts)
+        or parts[-1].startswith(".")
+        or parts[-1].lower() in _JUNK_NAMES
+    )
+
+
+def guess_name_from_filename(filename: str) -> str | None:
+    """'01-aarav-mehta.pdf' -> 'Aarav Mehta', 'Resume_John_Doe (1).pdf' ->
+    'John Doe'. Only a placeholder: screening replaces it with the name read
+    from the resume itself. None when nothing name-like is left."""
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    words = [
+        w for w in re.split(r"[^A-Za-z]+", stem)
+        if w and w.lower() not in DEFAULT_RESUME_PATTERNS + ("updated", "final", "new", "latest", "copy", "of")
+    ]
+    return " ".join(w.capitalize() for w in words) or None
+
+
+def _pick_resume(filenames: list[str], patterns: list[str]) -> str | None:
+    """The resume among one candidate folder's files: a name containing a
+    resume pattern first, else the only readable file, else the first
+    readable PDF/DOCX."""
+    readable = sorted(f for f in filenames if f.lower().endswith(RESUME_EXTENSIONS))
+    named = [f for f in readable if any(p in f.lower() for p in patterns)]
+    if named:
+        return named[0]
+    return readable[0] if readable else None
+
+
+def process_resume_zip(zip_path: str, storage_dir: str, resume_patterns: list | None = None) -> list[dict]:
+    """
+    Turns a ZIP of resumes into one candidate per resume. Two layouts, which
+    may be mixed:
+      - loose files:  every PDF/DOCX is one candidate (id = file name)
+      - folders:      every folder is one candidate (id = folder name); the
+                      resume is picked by name, other files are kept as
+                      supporting documents
+    Wrapper folders around everything (Windows adds one when zipping a
+    folder) are skipped.
+
+    Returns result dicts shaped like _build_candidate_result's, with no
+    roster data (raw_excel_data None) and ingestion_status "resume_only"
+    when a readable resume was found, else "no_documents_found".
+    """
+    patterns = [p.lower() for p in (resume_patterns or DEFAULT_RESUME_PATTERNS) if p]
+    os.makedirs(storage_dir, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path) as zf:
+        entries: list[tuple[list[str], str]] = []
+        for name in zf.namelist():
+            norm = name.replace("\\", "/")
+            if norm.endswith("/"):
+                continue
+            parts = [p for p in norm.split("/") if p]
+            if parts and not _is_junk_entry(parts):
+                entries.append((parts, name))
+
+        # Strip wrapper folders shared by every entry.
+        while entries and all(len(p) > 1 for p, _ in entries) and len({p[0] for p, _ in entries}) == 1:
+            entries = [(p[1:], n) for p, n in entries]
+
+        groups: dict[str, list[tuple[str, str]]] = {}  # key -> [(filename, zip entry)]
+        for parts, name in entries:
+            if len(parts) == 1:
+                if parts[0].lower().endswith(RESUME_EXTENSIONS):
+                    groups.setdefault("file:" + parts[0], []).append((parts[0], name))
+            else:
+                groups.setdefault("dir:" + parts[0], []).append((parts[-1], name))
+
+        results = []
+        used_ids: set[str] = set()
+        for key, files in groups.items():
+            label = key.split(":", 1)[1]
+            is_folder = key.startswith("dir:")
+            external_id = label if is_folder else os.path.splitext(label)[0]
+            base_id, n = external_id[:100], 2
+            external_id = base_id
+            while external_id in used_ids:
+                external_id = f"{base_id[:95]}-{n}"
+                n += 1
+            used_ids.add(external_id)
+
+            candidate_dir = os.path.join(storage_dir, str(uuid.uuid4()))
+            os.makedirs(candidate_dir, exist_ok=True)
+            local_paths: dict[str, str] = {}
+            for filename, entry in files:
+                target = os.path.join(candidate_dir, filename)
+                if os.path.exists(target):
+                    target = os.path.join(candidate_dir, f"{uuid.uuid4().hex[:6]}_{filename}")
+                with zf.open(entry) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                local_paths.setdefault(filename, target)
+
+            resume_name = _pick_resume(list(local_paths), patterns)
+            matched: dict[str, str] = {}
+            if resume_name:
+                matched["resume_cv"] = local_paths.pop(resume_name)
+            for i, filename in enumerate(sorted(local_paths), start=1):
+                matched[f"document_{i}"] = local_paths[filename]
+
+            results.append({
+                "external_id": external_id,
+                "name": guess_name_from_filename(label if is_folder else (resume_name or label)),
+                "raw_excel_data": None,
+                "ingestion_status": "resume_only" if resume_name else "no_documents_found",
+                "matched_documents": matched,
+            })
+        return results
 
 
 def _process_nested_zips(

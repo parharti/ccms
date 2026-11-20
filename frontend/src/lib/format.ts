@@ -32,6 +32,7 @@ const STATUS_LABEL: Record<string, string> = {
   data_mismatch: 'Sheet–resume mismatch',
   gov_tag: 'Government experience',
   roster_only: 'Roster row only',
+  resume_only: 'Resume only (no roster)',
   pending: 'Resume not fetched yet',
   fetching: 'Fetching resume…',
   fetched: 'Resume fetched',

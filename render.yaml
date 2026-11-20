@@ -1,0 +1,58 @@
+# Render Blueprint: free-tier deployment (see "Free deployment on Render +
+# Aiven" in DEPLOYMENT.md).
+#
+#   ccms-backend   FastAPI (backend/Dockerfile), free web service
+#   ccms-frontend  React build, free static site; /api/* is proxied to the
+#                  backend so the login cookie stays first-party
+#
+# Postgres is NOT created here -- it lives on Aiven (free plan). Paste its
+# Service URI into DATABASE_URL when Render asks for it.
+
+services:
+  - type: web
+    name: ccms-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /docs
+    envVars:
+      # The Dockerfile's uvicorn listens on 8000; tell Render to route there.
+      - key: PORT
+        value: "8000"
+      # Aiven Service URI, e.g.
+      # postgres://avnadmin:PASSWORD@pg-xxxx.aivencloud.com:12345/defaultdb?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      # The frontend's public URL, e.g. https://ccms-frontend.onrender.com
+      - key: FRONTEND_ORIGINS
+        sync: false
+
+  - type: web
+    name: ccms-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: /api
+      - key: NODE_VERSION
+        value: "22"
+    routes:
+      # Proxy API calls to the backend. If Render gives the backend a
+      # different URL (e.g. ccms-backend-abcd.onrender.com because the
+      # name was taken), update this destination to match.
+      - type: rewrite
+        source: /api/*
+        destination: https://ccms-backend.onrender.com/*
+      # SPA fallback so client-side routes survive a page refresh.
+      - type: rewrite
+        source: /*
+        destination: /index.html

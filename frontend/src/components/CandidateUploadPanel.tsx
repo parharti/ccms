@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { FileSpreadsheet, Upload, X, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
-import { useUploadCandidates } from '../hooks/useCandidates';
+import { FileArchive, FileSpreadsheet, Upload, X, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { useUploadCandidates, type UploadMode } from '../hooks/useCandidates';
 import { ApiError } from '../context/AuthContext';
 import type { CandidateUploadSummary } from '../types';
 
@@ -111,6 +111,27 @@ interface CandidateUploadPanelProps {
   onUploadError?: (message: string) => void;
 }
 
+const UPLOAD_MODES: { value: UploadMode; title: string; description: string }[] = [
+  {
+    value: 'roster',
+    title: 'Roster with resume links',
+    description:
+      'Only the sheet. Candidates are screened from their row first; resumes are then downloaded from the links in the sheet for shortlisted candidates.',
+  },
+  {
+    value: 'resumes',
+    title: 'Resumes ZIP only',
+    description:
+      'No roster. Each resume (PDF/Word, or one folder per candidate) is one candidate, and the resume is the whole truth: name, contact details and DOB are read from it and every resume is screened by Gemini.',
+  },
+  {
+    value: 'roster_resumes',
+    title: 'Roster + resumes ZIP',
+    description:
+      'The sheet (e.g. a Google Form export) plus a ZIP of resumes. Each resume is matched to its row by the name, email or phone in the file name, and the sheet is checked against the resume.',
+  },
+];
+
 export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
   profileId,
   actionLabel,
@@ -119,7 +140,9 @@ export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
   onUploadError,
 }) => {
   const uploadCandidates = useUploadCandidates(profileId);
+  const [mode, setMode] = useState<UploadMode>('roster');
   const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [resumesZip, setResumesZip] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<{
     total: number;
@@ -127,25 +150,42 @@ export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
     complete: number;
     incomplete: number;
     missing: number;
+    resumesMatched: number | null;
+    unmatchedFiles: string[];
   } | null>(null);
 
-  const canUpload = !!excelFile;
+  const needsRoster = mode !== 'resumes';
+  const needsZip = mode !== 'roster';
+  const canUpload = (!needsRoster || !!excelFile) && (!needsZip || !!resumesZip);
+  const missingLabel =
+    needsRoster && !excelFile && needsZip && !resumesZip
+      ? 'Add the roster and the resumes ZIP to continue'
+      : needsRoster && !excelFile
+        ? 'Add the roster to continue'
+        : 'Add the resumes ZIP to continue';
 
   const handleUpload = async () => {
-    if (!excelFile) return;
+    if (!canUpload) return;
     setUploadError(null);
     setUploadSummary(null);
     onUploadStart?.();
     try {
-      const result = await uploadCandidates.mutateAsync({ excelFile });
+      const result = await uploadCandidates.mutateAsync({
+        mode,
+        excelFile: needsRoster ? excelFile : null,
+        resumesZip: needsZip ? resumesZip : null,
+      });
       setUploadSummary({
         total: result.total_candidates_found,
         replaced: result.replaced_candidates ?? 0,
         complete: result.documents_complete,
         incomplete: result.documents_incomplete,
         missing: result.no_documents_found,
+        resumesMatched: result.resumes_matched ?? null,
+        unmatchedFiles: result.unmatched_files ?? [],
       });
       setExcelFile(null);
+      setResumesZip(null);
       onUploaded?.(result);
     } catch (err) {
       const message = err instanceof ApiError ? err.detail : 'Something went wrong uploading candidates. Please try again.';
@@ -160,21 +200,61 @@ export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
         <Upload className="w-4.5 h-4.5 text-primary" />
         <h2 className="font-semibold text-base text-foreground">Upload candidates</h2>
       </div>
-      <p className="text-sm text-muted font-normal leading-relaxed">
-        Only the candidate roster (Excel export) is needed. Candidates are screened from their roster
-        row first; resumes are then downloaded from the roster's links for shortlisted candidates only.
-      </p>
+      <fieldset className="flex flex-col gap-2" disabled={uploadCandidates.isPending}>
+        <legend className="text-sm font-medium text-foreground mb-2">What are you uploading?</legend>
+        {UPLOAD_MODES.map((m) => (
+          <label
+            key={m.value}
+            className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+              mode === m.value ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+            }`}
+          >
+            <input
+              type="radio"
+              name="upload-mode"
+              value={m.value}
+              checked={mode === m.value}
+              onChange={() => {
+                setMode(m.value);
+                setUploadError(null);
+              }}
+              className="mt-1 accent-[var(--color-primary)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-foreground">{m.title}</span>
+              <span className="block text-sm text-muted font-normal leading-relaxed">{m.description}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
 
       <div className="flex flex-col gap-3">
-        <FileSlot
-          label="Candidate roster"
-          hint="The department's sheet · .xlsx, .xls or .csv"
-          icon={FileSpreadsheet}
-          accept=".xlsx,.xls,.csv,.txt"
-          file={excelFile}
-          onChange={setExcelFile}
-          disabled={uploadCandidates.isPending}
-        />
+        {needsRoster && (
+          <FileSlot
+            label="Candidate roster"
+            hint="The department's sheet or Google Form export · .xlsx, .xls or .csv"
+            icon={FileSpreadsheet}
+            accept=".xlsx,.xls,.csv,.txt"
+            file={excelFile}
+            onChange={setExcelFile}
+            disabled={uploadCandidates.isPending}
+          />
+        )}
+        {needsZip && (
+          <FileSlot
+            label="Resumes ZIP"
+            hint={
+              mode === 'resumes'
+                ? 'PDF or Word resumes, loose or one folder per candidate · .zip'
+                : 'Resumes named with the candidate’s name, email or phone · .zip'
+            }
+            icon={FileArchive}
+            accept=".zip"
+            file={resumesZip}
+            onChange={setResumesZip}
+            disabled={uploadCandidates.isPending}
+          />
+        )}
       </div>
 
       <button
@@ -190,7 +270,7 @@ export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
         ) : (
           <>
             <Upload className="w-4 h-4" />
-            {canUpload ? (actionLabel ?? 'Upload candidates') : 'Add the roster to continue'}
+            {canUpload ? (actionLabel ?? 'Upload candidates') : missingLabel}
           </>
         )}
       </button>
@@ -224,10 +304,24 @@ export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
             )}
             {uploadSummary.missing > 0 && (
               <span className="text-sm font-medium px-2.5 py-1 bg-danger/15 text-danger rounded-md">
-                {uploadSummary.missing} missing documents
+                {uploadSummary.missing} {mode === 'resumes' ? 'without a readable resume' : 'missing documents'}
+              </span>
+            )}
+            {uploadSummary.resumesMatched !== null && (
+              <span className="text-sm font-medium px-2.5 py-1 bg-primary/15 text-primary rounded-md">
+                {uploadSummary.resumesMatched} resume{uploadSummary.resumesMatched === 1 ? '' : 's'} matched to the roster
               </span>
             )}
           </div>
+          {uploadSummary.unmatchedFiles.length > 0 && (
+            <div className="text-sm text-warning font-normal">
+              <p className="font-semibold">
+                {uploadSummary.unmatchedFiles.length} resume file{uploadSummary.unmatchedFiles.length === 1 ? '' : 's'} matched
+                no roster row (rename them with the candidate’s name, email or phone and upload again):
+              </p>
+              <p className="break-words">{uploadSummary.unmatchedFiles.join(', ')}</p>
+            </div>
+          )}
         </div>
       )}
     </div>
