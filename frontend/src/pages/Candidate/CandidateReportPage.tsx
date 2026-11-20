@@ -69,8 +69,8 @@ export const CandidateReportPage: React.FC = () => {
   const { data: candidates } = useCandidates(profileId);
   const reportKind: ReportKind = kind === 'brief' ? 'brief' : 'hr';
 
-  if (isLoading) return <p className="p-8 text-sm font-medium text-muted">Loading report…</p>;
-  if (!review) return <p className="p-8 text-sm font-medium text-danger">Candidate not found.</p>;
+  if (isLoading) return <p className="p-5 sm:p-8 text-sm font-medium text-muted">Loading report…</p>;
+  if (!review) return <p className="p-5 sm:p-8 text-sm font-medium text-danger">Candidate not found.</p>;
 
   const screened = candidates?.filter((c) => c.status !== 'not_evaluated') ?? [];
   const rankIndex = rankCandidates(screened).findIndex((c) => c.id === review.candidate_id);
@@ -92,7 +92,7 @@ export const CandidateReportPage: React.FC = () => {
           >
             <ArrowLeft className="w-4 h-4" /> Back to candidate
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link
               to={`/candidate/${profileId}/${candidateId}/print/${reportKind === 'hr' ? 'brief' : 'hr'}`}
               className="text-sm font-semibold px-4 py-2 rounded-lg border border-border text-foreground hover:border-primary/40"
@@ -109,9 +109,9 @@ export const CandidateReportPage: React.FC = () => {
         </div>
       </div>
 
-      <article className="max-w-[210mm] mx-auto my-6 print:my-0 bg-white text-foreground shadow-sm print:shadow-none border border-border print:border-0 rounded-lg print:rounded-none px-10 py-8 print:px-0 print:py-0 flex flex-col gap-5 text-[13px] leading-snug">
+      <article className="max-w-[210mm] mx-auto my-6 print:my-0 bg-white text-foreground shadow-sm print:shadow-none border border-border print:border-0 rounded-lg print:rounded-none px-4 py-5 sm:px-10 sm:py-8 print:px-0 print:py-0 flex flex-col gap-5 text-[13px] leading-snug">
         {/* Header */}
-        <header className="flex items-start justify-between gap-6 border-b-2 border-primary pb-3">
+        <header className="flex flex-wrap items-start justify-between gap-3 sm:gap-6 border-b-2 border-primary pb-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">{ORG_NAME} · {reportTitle}</p>
             <h1 className="text-2xl font-bold text-foreground mt-1">{review.name || 'Unnamed candidate'}</h1>
@@ -126,7 +126,7 @@ export const CandidateReportPage: React.FC = () => {
         </header>
 
         {/* Outcome strip */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 print:grid-cols-4 gap-3">
           <Stat label="Status" value={statusLabel(review.status)} />
           <Stat label="Rank" value={rank} />
           <Stat
@@ -375,7 +375,7 @@ const PanelBrief: React.FC<{ review: CandidateReviewDetail; marks: SkillMark[] }
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-5">
         <Section title="Work history">
           {jobs.length === 0 ? (
             <p className="text-muted">Not available.</p>
@@ -409,7 +409,7 @@ const PanelBrief: React.FC<{ review: CandidateReviewDetail; marks: SkillMark[] }
       </div>
 
       <Section title="Technical skills">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-4">
           <SkillColumn title={`Has (${strong.length})`} items={strong.map((m) => m.skill)} />
           <SkillColumn
             title={`Related only (${partial.length})`}
@@ -460,7 +460,7 @@ const SkillColumn: React.FC<{ title: string; items: string[] }> = ({ title, item
 );
 
 const SignOff: React.FC = () => (
-  <section className="break-inside-avoid grid grid-cols-3 gap-6 pt-8">
+  <section className="break-inside-avoid grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-6 pt-8">
     {['Screened by', 'Verified by', 'Date'].map((label) => (
       <div key={label} className="border-t border-foreground/60 pt-1 text-xs text-muted">
         {label}

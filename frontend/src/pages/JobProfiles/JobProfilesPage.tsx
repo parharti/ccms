@@ -109,9 +109,9 @@ export const JobProfilesPage: React.FC = () => {
             <Link
               key={p.id}
               to={`/recruitment/${p.id}`}
-              className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4 hover:border-primary/40 transition-colors"
+              className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4 hover:border-primary/40 transition-colors"
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start flex-wrap justify-between gap-2">
                 <div className="min-w-0">
                   <h3 className="font-semibold text-base text-foreground">{p.title}</h3>
                   {p.method_of_recruitment && (

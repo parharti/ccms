@@ -78,7 +78,7 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
   const error = update.error instanceof ApiError ? update.error.detail : update.error?.message;
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4 max-w-4xl">
+    <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4 max-w-4xl">
       <div className="flex items-center gap-2">
         <SlidersHorizontal className="w-4.5 h-4.5 text-primary" />
         <h2 className="font-semibold text-base text-foreground">Screening rules for this post</h2>

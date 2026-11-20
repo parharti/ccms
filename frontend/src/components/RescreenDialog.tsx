@@ -66,7 +66,7 @@ export const RescreenDialog: React.FC<Props> = ({
         className="bg-card border border-border rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border">
           <h2 className="font-semibold text-base text-foreground flex items-center gap-2">
             <RotateCcw className="w-4.5 h-4.5 text-primary" />
             Re-screen {scopeLabel ? `candidates from ${scopeLabel}` : 'candidates'}
@@ -76,7 +76,7 @@ export const RescreenDialog: React.FC<Props> = ({
           </button>
         </div>
 
-        <div className="px-6 py-5 flex flex-col gap-5">
+        <div className="px-4 sm:px-6 py-5 flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <p className="text-sm font-semibold text-foreground">Where the current {total} results come from</p>
             <div className="border border-border rounded-lg overflow-x-auto">
@@ -170,7 +170,7 @@ export const RescreenDialog: React.FC<Props> = ({
           </p>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border">
+        <div className="flex items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-border">
           <button
             onClick={onClose}
             className="bg-card border border-border text-foreground font-semibold text-sm px-5 py-2.5 rounded-lg"

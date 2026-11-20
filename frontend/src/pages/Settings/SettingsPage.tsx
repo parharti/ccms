@@ -14,12 +14,12 @@ export const SettingsPage: React.FC = () => {
         <p className="text-sm text-muted font-normal mt-1">Account and appearance settings.</p>
       </div>
 
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4">
+      <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4">
         <div className="flex items-center gap-2">
           <Mail className="w-4.5 h-4.5 text-primary" />
           <h2 className="font-semibold text-base text-foreground">Account</h2>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center flex-wrap justify-between">
           <div>
             <p className="text-sm font-semibold text-foreground">{user?.email}</p>
             <p className="text-sm text-muted font-normal">HR reviewer</p>
@@ -36,7 +36,7 @@ export const SettingsPage: React.FC = () => {
 
       <TemplateManager />
 
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-3">
+      <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-3">
         <div className="flex items-center gap-2">
           <Moon className="w-4.5 h-4.5 text-primary" />
           <h2 className="font-semibold text-base text-foreground">Appearance</h2>
@@ -46,7 +46,7 @@ export const SettingsPage: React.FC = () => {
         </p>
       </div>
 
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-3">
+      <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-3">
         <div className="flex items-center gap-2">
           <Info className="w-4.5 h-4.5 text-primary" />
           <h2 className="font-semibold text-base text-foreground">About</h2>

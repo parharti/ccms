@@ -33,8 +33,8 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-card border border-border rounded-lg shadow-sm p-8 flex flex-col gap-6">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md bg-card border border-border rounded-lg shadow-sm p-5 sm:p-8 flex flex-col gap-6">
         <div className="flex flex-col items-center gap-3 text-center">
           {ORG_LOGO ? (
             <img src={ORG_LOGO} alt={`${ORG_NAME} logo`} className="w-14 h-14 rounded-lg object-contain" />

@@ -195,7 +195,7 @@ export const CandidateUploadPanel: React.FC<CandidateUploadPanelProps> = ({
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4">
+    <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <Upload className="w-4.5 h-4.5 text-primary" />
         <h2 className="font-semibold text-base text-foreground">Upload candidates</h2>

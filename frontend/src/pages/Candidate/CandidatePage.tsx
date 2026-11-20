@@ -274,7 +274,7 @@ export const CandidatePage: React.FC = () => {
       )}
 
       {/* Candidate personal details */}
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+      <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm">
         <div className="flex items-center gap-2.5 mb-4">
           <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
             <User className="w-4 h-4 text-primary" />
@@ -344,7 +344,7 @@ export const CandidatePage: React.FC = () => {
 
       {/* Roster vs resume: experience + must-have items */}
       {review.resume_consistency && (
-        <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+        <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <h2 className="font-semibold text-base text-foreground">Resume vs roster check</h2>
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
@@ -364,7 +364,7 @@ export const CandidatePage: React.FC = () => {
           <ul className="flex flex-col gap-2">
             {review.resume_consistency.checks.map((c) => (
               <li key={c.item} className="border border-border bg-accent/30 rounded-lg px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start flex-wrap justify-between gap-3">
                   <p className="text-sm font-medium text-foreground">{c.item}</p>
                   <span className={`text-xs font-medium shrink-0 ${
                     c.verdict === 'inconsistent' ? 'text-destructive' : c.verdict === 'consistent' ? 'text-success' : 'text-muted'
@@ -382,7 +382,7 @@ export const CandidatePage: React.FC = () => {
 
       {/* Government Relevant Experience: every job, and whether it counted */}
       {review.gov_experience && (
-        <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+        <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -407,7 +407,7 @@ export const CandidatePage: React.FC = () => {
                 const counts = j.is_government && j.role_relevant;
                 return (
                   <li key={i} className="border border-border bg-accent/30 rounded-lg px-4 py-3">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start flex-wrap justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">
                         {j.designation ? `${j.designation}, ` : ''}{j.organisation}
                         {j.period && <span className="text-muted font-normal"> · {j.period}</span>}
@@ -434,7 +434,7 @@ export const CandidatePage: React.FC = () => {
         const certs = review.cv_certifications;
         const screened = review.status !== 'not_evaluated';
         return (
-          <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+          <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -471,7 +471,7 @@ export const CandidatePage: React.FC = () => {
 
       {/* Evaluation summary bar */}
       {review.evaluations.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="bg-success/10 border border-success/20 rounded-lg p-4 flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
             <div>
@@ -497,7 +497,7 @@ export const CandidatePage: React.FC = () => {
       )}
 
       {/* Criterion evaluations */}
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4">
+      <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
             <BookOpen className="w-4 h-4 text-primary" />
@@ -524,7 +524,7 @@ export const CandidatePage: React.FC = () => {
                   : 'border-warning/20 bg-warning/5'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start flex-wrap justify-between gap-3">
                   <div className="flex items-start gap-2 min-w-0">
                     {RESULT_ICON[ev.result] ?? RESULT_ICON['needs_review']}
                     <div className="min-w-0">

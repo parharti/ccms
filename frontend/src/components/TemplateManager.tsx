@@ -72,8 +72,8 @@ export const TemplateManager: React.FC = () => {
   const canSave = name.trim() && sheet && fieldMap.external_id && resumePatterns.trim();
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+    <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4">
+      <div className="flex items-center flex-wrap justify-between gap-2">
         <div className="flex items-center gap-2">
           <FileSpreadsheet className="w-4.5 h-4.5 text-primary" />
           <h2 className="font-semibold text-base text-foreground">Department templates</h2>

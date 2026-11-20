@@ -353,8 +353,8 @@ export const ProfileDetailPage: React.FC = () => {
       {step === 1 && profile && <ScreeningSettingsCard profile={profile} />}
 
       {step === 1 && (
-        <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4 max-w-4xl">
-          <div className="flex items-center justify-between">
+        <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4 max-w-4xl">
+          <div className="flex items-center flex-wrap justify-between">
             <div>
               <div className="flex items-center gap-2">
                 <Edit2 className="w-4.5 h-4.5 text-primary" />
@@ -382,7 +382,7 @@ export const ProfileDetailPage: React.FC = () => {
 
           {addingNew && (
             <form onSubmit={handleAddCriterion} className="flex flex-col gap-3 bg-accent/40 rounded-lg p-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <select
                   value={newCriterion.type}
                   onChange={(e) =>
@@ -476,7 +476,7 @@ export const ProfileDetailPage: React.FC = () => {
                 <div key={c.id} className="border border-border rounded-lg p-4">
                   {editingId === c.id ? (
                     <div className="flex flex-col gap-2">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <select
                           value={draft.type}
                           onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value }))}
@@ -549,7 +549,7 @@ export const ProfileDetailPage: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start flex-wrap justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-medium px-2 py-0.5 bg-primary/10 text-primary rounded-md">
@@ -627,7 +627,7 @@ export const ProfileDetailPage: React.FC = () => {
             <button
               onClick={() => setStepOverride(2)}
               disabled={profile.criteria.length === 0}
-              className="bg-primary text-primary-foreground font-semibold text-sm px-6 py-3 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-primary text-primary-foreground font-semibold text-sm px-4 sm:px-6 py-3 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Confirm criteria
               <ArrowRight className="w-4 h-4" />
@@ -655,7 +655,7 @@ export const ProfileDetailPage: React.FC = () => {
           />
 
           {hasCandidates && (
-            <div className="bg-accent/40 border border-border rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+            <div className="bg-accent/40 border border-border rounded-lg px-4 py-3 flex items-center flex-wrap justify-between gap-3">
               <p className="text-sm font-normal text-foreground">
                 {candidates!.length} candidate{candidates!.length === 1 ? '' : 's'} already uploaded for this profile.
                 Re-uploading the same roster replaces them.
@@ -677,7 +677,7 @@ export const ProfileDetailPage: React.FC = () => {
           <ResumeFetchPanel profileId={profileId} />
           {/* Phase banner: uploading -> screening -> done */}
           {uploadPhase === 'uploading' && (
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-6 flex items-center gap-4">
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 sm:p-6 flex items-center gap-4">
               <Loader2 className="w-8 h-8 text-primary animate-spin shrink-0" />
               <div>
                 <p className="text-base font-semibold text-foreground">Uploading candidates & matching documents…</p>
@@ -689,7 +689,7 @@ export const ProfileDetailPage: React.FC = () => {
           )}
 
           {uploadPhase === 'error' && (
-            <div className="bg-danger/10 border border-danger/20 rounded-lg p-6 flex items-start gap-4">
+            <div className="bg-danger/10 border border-danger/20 rounded-lg p-4 sm:p-6 flex items-start gap-4">
               <AlertTriangle className="w-6 h-6 text-danger shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-base font-semibold text-danger">Upload failed</p>
@@ -708,7 +708,7 @@ export const ProfileDetailPage: React.FC = () => {
           )}
 
           {runActive && run && run.total_candidates > 0 && (
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-6 flex flex-col gap-3">
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 sm:p-6 flex flex-col gap-3">
               <div className="flex items-center gap-4">
                 <Loader2 className="w-8 h-8 text-primary animate-spin shrink-0" />
                 <div className="flex-1">
@@ -748,7 +748,7 @@ export const ProfileDetailPage: React.FC = () => {
           {outdatedCount > 0 && !runActive && uploadPhase !== 'uploading' && (
             <div className="bg-warning/10 border border-warning/25 rounded-lg p-4 flex items-center gap-3 flex-wrap">
               <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
-              <p className="text-sm text-foreground flex-1 min-w-[240px]">
+              <p className="text-sm text-foreground flex-1 min-w-0 sm:min-w-[240px]">
                 <span className="font-semibold">{outdatedCount} result{outdatedCount === 1 ? ' was' : 's were'}</span>{' '}
                 produced before the criteria were last edited — {outdatedCount === 1 ? 'it doesn’t' : 'they don’t'}{' '}
                 reflect the current criteria until re-screened.
@@ -763,7 +763,7 @@ export const ProfileDetailPage: React.FC = () => {
           )}
 
           {/* Actions + summary */}
-          <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4">
+          <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-4 flex-wrap">
                 {(['eligible', 'needs_review', 'not_eligible', 'not_evaluated'] as const).map((s) => (
@@ -874,7 +874,7 @@ export const ProfileDetailPage: React.FC = () => {
 
           {/* Candidate list */}
           <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border">
               <h2 className="font-semibold text-base text-foreground">Candidates</h2>
               <div className="flex items-center gap-2">
                 {candidates && candidates.length > 0 && (
@@ -886,7 +886,7 @@ export const ProfileDetailPage: React.FC = () => {
             </div>
 
             {!candidates || candidates.length === 0 ? (
-              <div className="px-6 py-10 text-center flex flex-col items-center gap-2">
+              <div className="px-4 sm:px-6 py-10 text-center flex flex-col items-center gap-2">
                 <div className="w-10 h-10 rounded-lg bg-accent border border-border flex items-center justify-center">
                   <Users className="w-5 h-5 text-muted" />
                 </div>
@@ -895,9 +895,9 @@ export const ProfileDetailPage: React.FC = () => {
               </div>
             ) : (
               <>
-                <div className="px-6 py-3 border-b border-border">
+                <div className="px-4 sm:px-6 py-3 border-b border-border">
                   <div className="flex items-center gap-3 flex-wrap">
-                    <div className="relative max-w-md flex-1 min-w-[220px]">
+                    <div className="relative max-w-md flex-1 min-w-0 sm:min-w-[220px]">
                       <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
@@ -995,7 +995,7 @@ export const ProfileDetailPage: React.FC = () => {
                   </div>
                 </div>
                 {filteredCandidates.length === 0 ? (
-                  <div className="px-6 py-8 text-center">
+                  <div className="px-4 sm:px-6 py-8 text-center">
                     <p className="text-sm font-normal text-foreground">No candidates match your search or filter.</p>
                   </div>
                 ) : (

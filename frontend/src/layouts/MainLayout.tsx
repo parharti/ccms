@@ -69,15 +69,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     <div className="min-h-screen bg-background text-foreground flex">
       <Sidebar />
 
-      <div className="flex-1 min-w-0 pl-64 flex flex-col min-h-screen">
+      <div className="flex-1 min-w-0 pb-20 lg:pb-0 lg:pl-64 flex flex-col min-h-screen">
         {/* Header */}
-        <header className="h-16 bg-card/80 backdrop-blur border-b border-border px-8 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex flex-col justify-center">
-            <h2 className="font-bold text-foreground text-xl leading-tight">{title}</h2>
-            {subtitle && <p className="text-sm text-muted font-normal leading-tight mt-0.5">{subtitle}</p>}
+        <header className="min-h-14 lg:h-16 bg-card/80 backdrop-blur border-b border-border px-4 py-2 lg:px-8 lg:py-0 flex items-center justify-between gap-3 sticky top-0 z-10">
+          <div className="flex flex-col justify-center min-w-0">
+            <h2 className="font-bold text-foreground text-base lg:text-xl leading-tight truncate">{title}</h2>
+            {subtitle && <p className="hidden sm:block text-sm text-muted font-normal leading-tight mt-0.5 truncate">{subtitle}</p>}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 lg:gap-3 shrink-0">
             {/* Backend status — only shown once resolved */}
             {backendOnline === true && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-success/10 border border-success/20 text-success text-xs font-semibold">
@@ -104,7 +104,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               {theme === 'dark'
                 ? <Sun className="w-4 h-4 text-amber-400" />
                 : <Moon className="w-4 h-4 text-muted" />}
-              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              <span className="hidden sm:inline">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
             </button>
 
             <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs shadow-sm uppercase">
@@ -113,7 +113,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           </div>
         </header>
 
-        <main className="flex-1 min-w-0 p-8 overflow-y-auto">{children}</main>
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

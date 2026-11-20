@@ -12,7 +12,7 @@ const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
 
 function DashboardSkeleton() {
   return (
-    <div className="bg-card border border-border rounded-lg p-6 flex flex-col gap-4">
+    <div className="bg-card border border-border rounded-lg p-4 sm:p-6 flex flex-col gap-4">
       <Skeleton className="h-4 w-48" />
       {[...Array(5)].map((_, i) => (
         <div key={i} className="py-3 flex items-center gap-3 border-b border-border/50">
@@ -47,7 +47,7 @@ export const DashboardPage: React.FC = () => {
   const runs = data!.recent_screening_runs;
 
   return (
-    <div className="bg-card border border-border rounded-lg p-6 shadow-sm flex flex-col gap-4">
+    <div className="bg-card border border-border rounded-lg p-4 sm:p-6 shadow-sm flex flex-col gap-4">
       <div className="flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
           <PlayCircle className="w-4 h-4 text-primary" />

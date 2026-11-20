@@ -205,7 +205,7 @@ export const ReportsPage: React.FC = () => {
       {/* Results table */}
       <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
         {isLoading && (
-          <div className="p-8 flex items-center justify-center gap-2 text-muted text-sm font-semibold">
+          <div className="p-5 sm:p-8 flex items-center justify-center gap-2 text-muted text-sm font-semibold">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading results…
           </div>
         )}

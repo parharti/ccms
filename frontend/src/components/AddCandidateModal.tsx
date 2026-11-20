@@ -52,7 +52,7 @@ export const AddCandidateModal: React.FC<Props> = ({ profileId, onClose }) => {
         className="bg-card border border-border rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border">
           <h2 className="font-semibold text-base text-foreground flex items-center gap-2">
             <UserPlus className="w-4 h-4 text-primary" /> Add candidate
           </h2>
@@ -62,7 +62,7 @@ export const AddCandidateModal: React.FC<Props> = ({ profileId, onClose }) => {
         </div>
 
         <form
-          className="px-6 py-4 flex flex-col gap-3"
+          className="px-4 sm:px-6 py-4 flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
             setError(null);
@@ -70,7 +70,7 @@ export const AddCandidateModal: React.FC<Props> = ({ profileId, onClose }) => {
           }}
         >
           <input required value={form.external_id} onChange={set('external_id')} placeholder="Candidate ID * (e.g. IHM/JA/1900/10001)" className={inputCls} />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input value={form.name} onChange={set('name')} placeholder="Full name" className={inputCls} />
             <input value={form.email} onChange={set('email')} placeholder="Email" type="email" className={inputCls} />
             <input value={form.phone} onChange={set('phone')} placeholder="Phone" className={inputCls} />
