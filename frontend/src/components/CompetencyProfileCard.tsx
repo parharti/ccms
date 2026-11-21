@@ -119,14 +119,13 @@ export const CompetencyProfileCard: React.FC<{ review: CandidateReviewDetail; pr
         {sections.length >= 3 ? <RadarChart sections={sections} /> : <div />}
         <ul className="flex flex-col gap-3 min-w-0">
           {sections.map((s) => {
-            const share = totalWeight ? Math.round((s.weight / totalWeight) * 100) : 0;
-            const pts = s.value != null && scoredWeight ? (s.value * s.weight) / scoredWeight : null;
+            const earned = s.value != null ? (s.value * s.weight) / 100 : null;
             return (
               <li key={s.key} className="flex flex-col gap-1">
                 <div className="flex items-baseline justify-between gap-2 text-sm">
                   <span className="font-semibold text-foreground truncate">{s.label}</span>
                   <span className="text-muted shrink-0 tabular-nums">
-                    {pts != null ? `${pts.toFixed(1)} pts` : 'not scored'} · weight {share}%
+                    {earned != null ? `${Number(earned.toFixed(1))} / ${s.weight}` : `not scored / ${s.weight}`}
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-border/60 overflow-hidden">
@@ -143,10 +142,11 @@ export const CompetencyProfileCard: React.FC<{ review: CandidateReviewDetail; pr
           })}
         </ul>
       </div>
-      <p className="text-xs text-muted">
-        Each competency is scored 0–5 only from concrete evidence in the candidate's documents (0 = none, 3 = clear
-        example, 5 = sustained, measurable impact). Weights are set per post under Screening rules.
-      </p>
+      {scoredWeight < totalWeight && scoredWeight > 0 && (
+        <p className="text-xs text-muted">
+          Fields marked “not scored” are left out and the score is scaled to 100 over the rest.
+        </p>
+      )}
     </div>
   );
 };

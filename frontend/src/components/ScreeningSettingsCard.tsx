@@ -29,6 +29,46 @@ const NumberField: React.FC<NumberFieldProps> = ({ label, hint, value, onChange,
   </label>
 );
 
+interface MarksRowProps {
+  name: string;
+  value: string;
+  onValue: (v: string) => void;
+  /** Editable name + remove button for HR's own fields; fixed rows omit these. */
+  onName?: (v: string) => void;
+  onRemove?: () => void;
+}
+
+const MarksRow: React.FC<MarksRowProps> = ({ name, value, onValue, onName, onRemove }) => (
+  <li className="flex items-center gap-2 px-3 py-2">
+    {onName ? (
+      <input
+        value={name}
+        onChange={(e) => onName(e.target.value)}
+        placeholder="Field name, e.g. Problem solving"
+        className="bg-card border border-border text-foreground text-sm font-medium rounded-lg px-3 py-1.5 flex-1 min-w-0"
+      />
+    ) : (
+      <span className="text-sm font-medium text-foreground flex-1 min-w-0 px-3">{name}</span>
+    )}
+    <input
+      type="number"
+      min={0}
+      max={100}
+      value={value}
+      onChange={(e) => onValue(e.target.value)}
+      aria-label={`${name || 'Field'} marks`}
+      className="bg-card border border-border text-foreground text-sm font-semibold rounded-lg px-2 py-1.5 w-20 text-right tabular-nums"
+    />
+    {onRemove ? (
+      <button type="button" onClick={onRemove} aria-label={`Remove ${name}`} className="p-1.5 text-muted hover:text-danger">
+        <Trash2 className="w-4 h-4" />
+      </button>
+    ) : (
+      <span className="w-7" />
+    )}
+  </li>
+);
+
 /**
  * Per-post screening settings: how far an experience shortfall may go before
  * rejection (with strong skills it becomes "strong candidate, with
@@ -85,15 +125,6 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
     setCompetencies((list) => list.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const totalWeight =
     (Number(wSkills) || 0) + (Number(wDesirable) || 0) + competencies.reduce((a, c) => a + (Number(c.weight) || 0), 0);
-  const shareOf = (w: number | string) => (totalWeight ? Math.round(((Number(w) || 0) / totalWeight) * 100) : 0);
-  const splitEvenly = () => {
-    // Skills keep 40; desirable items and every competency share the other 60 equally.
-    const others = competencies.length + 1;
-    const each = Math.floor(60 / others);
-    setWSkills(String(100 - each * others));
-    setWDesirable(String(each));
-    setCompetencies((list) => list.map((c) => ({ ...c, weight: each })));
-  };
 
   const error = update.error instanceof ApiError ? update.error.detail : update.error?.message;
 
@@ -127,72 +158,35 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
         />
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-foreground">Suitability score weights (out of 100)</p>
-          <span className={`text-sm font-semibold ${totalWeight === 100 ? 'text-success' : 'text-warning'}`}>
-            Total {totalWeight}
-            {totalWeight !== 100 && totalWeight > 0 ? ' — scaled to 100' : ''}
+          <p className="text-sm font-semibold text-foreground">Scoring marks (total must be 100)</p>
+          <span className={`text-sm font-bold tabular-nums ${totalWeight === 100 ? 'text-success' : 'text-danger'}`}>
+            {totalWeight} / 100
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <NumberField label="Technical skills" hint={`Skills match % · ${shareOf(wSkills)}% of the score`} value={wSkills} onChange={setWSkills} />
-          <NumberField label="Desirable items" hint={`Preferred degrees, certificates etc. · ${shareOf(wDesirable)}% of the score`} value={wDesirable} onChange={setWDesirable} />
-        </div>
-
-        <div className="flex items-center justify-between gap-2 flex-wrap mt-1">
-          <p className="text-sm font-semibold text-foreground">Competencies (scored 0–5 from the resume)</p>
-          <button type="button" onClick={splitEvenly} className="text-xs font-semibold text-primary hover:underline">
-            Skills 40, rest equal
-          </button>
-        </div>
-        {competencies.map((c, i) => (
-          <div key={c.key ?? `new-${i}`} className="border border-border rounded-lg p-3 flex flex-col gap-2">
-            <div className="flex gap-2 items-start">
-              <input
-                value={c.name}
-                onChange={(e) => setComp(i, { name: e.target.value })}
-                placeholder="Competency name, e.g. Problem solving"
-                className="bg-card border border-border text-foreground text-sm font-semibold rounded-lg px-3 py-2 flex-1 min-w-0"
-              />
-              <input
-                type="number"
-                min={0}
-                value={c.weight}
-                onChange={(e) => setComp(i, { weight: e.target.value === '' ? 0 : Number(e.target.value) })}
-                aria-label={`${c.name} weight`}
-                className="bg-card border border-border text-foreground text-sm font-medium rounded-lg px-3 py-2 w-20"
-              />
-              <button
-                type="button"
-                onClick={() => setCompetencies((list) => list.filter((_, j) => j !== i))}
-                aria-label={`Remove ${c.name}`}
-                className="p-2 text-muted hover:text-danger"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-            <textarea
-              value={c.description}
-              onChange={(e) => setComp(i, { description: e.target.value })}
-              rows={2}
-              placeholder="What counts as evidence in a resume"
-              className="bg-card border border-border text-foreground text-xs rounded-lg px-3 py-2 w-full"
+        <ul className="flex flex-col divide-y divide-border border border-border rounded-lg">
+          <MarksRow name="Technical skills" value={wSkills} onValue={setWSkills} />
+          <MarksRow name="Desirable items" value={wDesirable} onValue={setWDesirable} />
+          {competencies.map((c, i) => (
+            <MarksRow
+              key={c.key ?? `new-${i}`}
+              name={c.name}
+              // A renamed field is scored by its new name alone.
+              onName={(name) => setComp(i, { name, description: '' })}
+              value={String(c.weight)}
+              onValue={(v) => setComp(i, { weight: v === '' ? 0 : Number(v) })}
+              onRemove={() => setCompetencies((list) => list.filter((_, j) => j !== i))}
             />
-            <span className="text-xs text-muted">{shareOf(c.weight)}% of the score</span>
-          </div>
-        ))}
+          ))}
+        </ul>
         <button
           type="button"
-          onClick={() => setCompetencies((list) => [...list, { name: '', description: '', weight: 15 }])}
+          onClick={() => setCompetencies((list) => [...list, { name: '', description: '', weight: 0 }])}
           className="self-start flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
         >
-          <Plus className="w-4 h-4" /> Add competency
+          <Plus className="w-4 h-4" /> Add field
         </button>
-        <p className="text-xs text-muted">
-          Weight changes re-rank saved results straight away. Adding, renaming or removing a competency needs a
-          re-screen to score it.
-        </p>
       </div>
 
       <label className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -203,7 +197,8 @@ export const ScreeningSettingsCard: React.FC<{ profile: JobProfile }> = ({ profi
       <div className="flex items-center gap-3">
         <button
           onClick={save}
-          disabled={update.isPending}
+          disabled={update.isPending || totalWeight !== 100}
+          title={totalWeight !== 100 ? 'Scoring marks must add up to 100' : undefined}
           className="bg-primary text-primary-foreground font-semibold text-sm px-5 py-2.5 rounded-lg flex items-center gap-2 disabled:opacity-50"
         >
           {update.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

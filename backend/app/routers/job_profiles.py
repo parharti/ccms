@@ -180,8 +180,9 @@ def update_profile_settings(profile_id: str, payload: ProfileSettingsUpdate, db:
     weights = {k: data.get(k, getattr(profile, k)) for k in ("weight_skills", "weight_desirable")}
     if any(w < 0 for w in weights.values()):
         raise HTTPException(status_code=422, detail="Weights cannot be negative.")
-    if sum(weights.values()) + sum(c["weight"] for c in competencies) == 0:
-        raise HTTPException(status_code=422, detail="At least one scoring weight must be above zero.")
+    total = sum(weights.values()) + sum(c["weight"] for c in competencies)
+    if ("competencies_config" in data or "weight_skills" in data or "weight_desirable" in data) and total != 100:
+        raise HTTPException(status_code=422, detail=f"Scoring marks must add up to 100 (they add up to {total}).")
 
     for key, value in data.items():
         setattr(profile, key, value)
