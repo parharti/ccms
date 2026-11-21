@@ -100,6 +100,7 @@ def get_candidate_review(profile_id: str, candidate_id: str, db: Session = Depen
         review_tag=candidate.review_tag,
         review_note=candidate.review_note,
         suitability_score=candidate.suitability_score,
+        competency_scores=candidate.competency_scores,
         gov_tag=candidate.gov_tag,
         gov_experience=candidate.gov_experience,
         evaluations=evaluation_details,

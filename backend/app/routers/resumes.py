@@ -132,7 +132,7 @@ def _upsert_candidates(
 
 
 def _blank_screening_fields() -> dict:
-    return dict(review_tag=None, review_note=None, suitability_score=None)
+    return dict(review_tag=None, review_note=None, suitability_score=None, competency_scores=None)
 
 
 def _ingest_roster(db: Session, profile: JobProfile, excel_path: str) -> tuple[list[Candidate], int]:

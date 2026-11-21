@@ -155,6 +155,12 @@ class Candidate(Base):
     # experience, desirable items); the Results ranking sorts by it.
     suitability_score: Mapped[int] = mapped_column(Integer, nullable=True)
 
+    # The post's competencies scored from the resume, 0-5 each with the
+    # quoted evidence: [{"key", "name", "score", "evidence", "document",
+    # "page"}]. NULL = not assessed (not screened, age-rejected, not
+    # eligible, or the Gemini call failed).
+    competency_scores: Mapped[list] = mapped_column(JSON, nullable=True)
+
     # Government Relevant Experience. Only checked for candidates who are
     # eligible or need review (never for not-eligible ones).
     # gov_experience = {"jobs": [{"organisation", "designation", "period",

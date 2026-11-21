@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.services.criteria_utils import normalize_related_mark, normalize_skill_items
+from app.services.criteria_utils import normalize_competencies, normalize_related_mark, normalize_skill_items
 
 
 def gen_uuid() -> str:
@@ -94,9 +94,15 @@ class JobProfile(Base):
     # they are normalised over the sections a post actually has). Only
     # skills and desirable items count; weight_experience is kept for old
     # rows but no longer used (experience is handled by the tolerance rule).
-    weight_skills: Mapped[int] = mapped_column(Integer, default=70)
+    # Defaults: skills carry the most, desirable items and each competency
+    # an equal share -- 40 + 15 + 3 x 15 = 100.
+    weight_skills: Mapped[int] = mapped_column(Integer, default=40)
     weight_experience: Mapped[int] = mapped_column(Integer, default=30)
-    weight_desirable: Mapped[int] = mapped_column(Integer, default=30)
+    weight_desirable: Mapped[int] = mapped_column(Integer, default=15)
+    # Competencies scored from the resume (projects, leadership,
+    # communication, ... -- HR-editable per post): [{"key", "name",
+    # "description", "weight"}]. NULL = the defaults (see `competencies`).
+    competencies_config: Mapped[list] = mapped_column("competencies", JSON, nullable=True)
     # "Close miss" tag: a NOT ELIGIBLE candidate who still scores at least
     # this much (0-100) in a section is tagged so HR can look at them. Each
     # section is optional -- NULL switches that section's check off.
@@ -111,6 +117,11 @@ class JobProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+    @property
+    def competencies(self) -> list[dict]:
+        """The competencies this post scores: HR's list, or the defaults."""
+        return normalize_competencies(self.competencies_config)
 
     source_jd_upload: Mapped["JDUpload"] = relationship(back_populates="job_profiles")
     criteria: Mapped[list["Criterion"]] = relationship(

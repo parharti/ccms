@@ -55,6 +55,16 @@ class GovExperienceOut(BaseModel):
     jobs: List[GovJobOut] = []
 
 
+class CompetencyScoreOut(BaseModel):
+    key: str
+    name: str
+    score: int
+    evidence: Optional[str] = None
+    document: Optional[str] = None
+    page: Optional[int] = None
+    reason: Optional[str] = None
+
+
 class CandidateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -78,6 +88,7 @@ class CandidateOut(BaseModel):
     review_note: Optional[str] = None
     # 0-100 weighted score over the soft sections; the ranking sorts by it.
     suitability_score: Optional[int] = None
+    competency_scores: Optional[List[CompetencyScoreOut]] = None
     computed_status: Optional[str] = None
     status: str
     status_overridden: bool = False

@@ -8,7 +8,7 @@ from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.schemas.candidate import CVCertificationOut, ResumeConsistencyOut, GovExperienceOut
+from app.schemas.candidate import CVCertificationOut, CompetencyScoreOut, ResumeConsistencyOut, GovExperienceOut
 
 ALLOWED_OVERRIDE_STATUSES = {"eligible", "not_eligible", "needs_review"}
 
@@ -69,6 +69,7 @@ class CandidateReviewDetail(BaseModel):
     review_tag: Optional[str] = None
     review_note: Optional[str] = None
     suitability_score: Optional[int] = None
+    competency_scores: Optional[List[CompetencyScoreOut]] = None
     gov_tag: bool = False
     gov_experience: Optional[GovExperienceOut] = None
     evaluations: List[CriterionEvaluationDetail] = []

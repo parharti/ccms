@@ -135,7 +135,7 @@ export const ReportsPage: React.FC = () => {
             <li><span className="font-semibold text-warning">Needs manual review</span> — the system could not decide everything (e.g. sheet and resume disagree, resume not retrieved).</li>
             <li><span className="font-semibold text-danger">Not eligible</span> — fails at least one must-have criterion.</li>
             <li><span className="font-semibold text-muted">Not screened yet</span> — screening has not been run for this candidate.</li>
-            <li>Ranking: by group in the order above, then by <span className="font-semibold">suitability score</span> (skills match and desirable items). Tags such as government experience never change the order — use the filter instead.</li>
+            <li>Ranking: by group in the order above, then by <span className="font-semibold">suitability score</span> (skills match, desirable items and competencies such as projects, leadership and communication). Tags such as government experience never change the order — use the filter instead.</li>
           </ul>
         </div>
       </div>

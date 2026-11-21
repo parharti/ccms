@@ -193,6 +193,7 @@ def upload_candidates(
             candidate.review_tag = None
             candidate.review_note = None
             candidate.suitability_score = None
+            candidate.competency_scores = None
 
             candidate.documents.clear()  # delete-orphan cascade drops old rows
             db.flush()
@@ -348,6 +349,7 @@ def add_single_candidate(
         candidate.review_tag = None
         candidate.review_note = None
         candidate.suitability_score = None
+        candidate.competency_scores = None
         candidate.documents.clear()
         db.flush()
     else:

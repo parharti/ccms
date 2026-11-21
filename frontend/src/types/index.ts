@@ -39,6 +39,25 @@ export interface AgeRelaxationRule {
   relaxation_text: string;
 }
 
+/** A quality the post scores from the resume (0-5), weighted into the suitability score. */
+export interface Competency {
+  key?: string;
+  name: string;
+  description: string;
+  weight: number;
+}
+
+/** One competency as scored for a candidate, with the strongest line of evidence. */
+export interface CompetencyScore {
+  key: string;
+  name: string;
+  score: number;
+  evidence?: string | null;
+  document?: string | null;
+  page?: number | null;
+  reason?: string | null;
+}
+
 export interface JobProfile {
   id: string;
   title: string;
@@ -54,6 +73,8 @@ export interface JobProfile {
   weight_skills?: number;
   weight_experience?: number;
   weight_desirable?: number;
+  /** Competencies scored from the resume (projects, leadership, communication, ...). */
+  competencies?: Competency[];
   /** "Close miss" tag: a Not eligible candidate scoring at least this % in a section. null = that check is off. */
   close_miss_skills_min?: number | null;
   close_miss_experience_min?: number | null;
@@ -126,6 +147,7 @@ export interface Candidate {
   review_note?: string | null;
   /** 0-100 weighted score over the soft sections; ranking sorts by it. */
   suitability_score?: number | null;
+  competency_scores?: CompetencyScore[] | null;
   computed_status?: CandidateStatus | null;
   status: CandidateStatus;
   status_overridden: boolean;
@@ -291,6 +313,7 @@ export interface CandidateReviewDetail {
   review_tag?: string | null;
   review_note?: string | null;
   suitability_score?: number | null;
+  competency_scores?: CompetencyScore[] | null;
   gov_tag?: boolean;
   gov_experience?: GovExperience | null;
   evaluations: CriterionEvaluationDetail[];

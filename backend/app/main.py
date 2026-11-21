@@ -108,6 +108,8 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS resume_fetch_error VARCHAR(500)"))
     conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS criteria_fingerprint VARCHAR(64)"))
     conn.execute(text("ALTER TABLE screening_runs ADD COLUMN IF NOT EXISTS candidate_ids JSON"))
+    conn.execute(text("ALTER TABLE job_profiles ADD COLUMN IF NOT EXISTS competencies JSON"))
+    conn.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS competency_scores JSON"))
 
 from app.db.session import SessionLocal  # noqa: E402
 

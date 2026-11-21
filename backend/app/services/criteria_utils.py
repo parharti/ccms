@@ -166,3 +166,70 @@ def skill_score_summary(marks: list[dict]) -> str:
         return text
 
     return f"Skills score {total:g} / {out_of:g}: " + ", ".join(part(m) for m in scored) + "."
+
+
+# ---------------------------------------------------------------------------
+# Competencies: the soft qualities (projects, leadership, communication, ...)
+# each post scores alongside skills. HR can rename, add or remove them per
+# post; every one is scored 0-5 by Gemini from the resume with a quoted line
+# of evidence, and weighted into the 0-100 suitability score.
+# ---------------------------------------------------------------------------
+
+DEFAULT_COMPETENCIES = [
+    {
+        "key": "projects",
+        "name": "Projects & practical work",
+        "description": "Hands-on projects the candidate built or delivered: how many, how complex, how relevant to the post, and whether they built it themselves rather than just took part.",
+        "weight": 15,
+    },
+    {
+        "key": "leadership",
+        "name": "Leadership & ownership",
+        "description": "Led a team, mentored others, owned a module or outcome end to end, or started something on their own initiative.",
+        "weight": 15,
+    },
+    {
+        "key": "communication",
+        "name": "Communication",
+        "description": "Presentations, reports, trainings given, publications, or roles that deal with stakeholders, senior officers or the public.",
+        "weight": 15,
+    },
+]
+
+
+def _competency_key(name: str, taken: set[str]) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:40] or "competency"
+    key, n = base, 2
+    while key in taken:
+        key, n = f"{base}_{n}", n + 1
+    return key
+
+
+def normalize_competencies(raw) -> list[dict]:
+    """A clean competency list: name required, description optional, weight
+    a non-negative integer, a stable unique key per item. None (never set)
+    gives the defaults; an explicit empty list means "no competencies"."""
+    if raw is None:
+        return [dict(c) for c in DEFAULT_COMPETENCIES]
+    items, taken = [], set()
+    for entry in raw or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()[:100]
+        if not name:
+            continue
+        key = str(entry.get("key") or "").strip()
+        if not key or key in taken:
+            key = _competency_key(name, taken)
+        taken.add(key)
+        try:
+            weight = max(0, int(round(float(entry.get("weight", 0) or 0))))
+        except (TypeError, ValueError):
+            weight = 0
+        items.append({
+            "key": key,
+            "name": name,
+            "description": str(entry.get("description") or "").strip()[:500],
+            "weight": weight,
+        })
+    return items

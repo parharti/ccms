@@ -34,6 +34,7 @@ from app.services.gemini_service import (
     check_resume_roster_consistency_with_gemini,
     classify_government_experience_with_gemini,
     extract_resume_details_with_gemini,
+    assess_competencies_with_gemini,
 )
 from app.services.criteria_utils import rescore_skill_marks, score_skill_matches, skill_score_summary
 from app.services.pdf_extraction import (
@@ -63,7 +64,7 @@ def criteria_fingerprint(profile: JobProfile) -> str:
     essential flag and minimum match %, the skill names Gemini classifies,
     and the age limits / relaxation rules.
 
-    Deliberately NOT included: skill weights, the related mark, the
+    Deliberately NOT included: competency weights, skill weights, the related mark, the
     experience tolerance, thresholds and suitability weights -- changes to
     those are re-applied to saved results straight away
     (reapply_screening_rules), so they never leave a result outdated.
@@ -83,6 +84,10 @@ def criteria_fingerprint(profile: JobProfile) -> str:
             ),
             key=lambda c: c["id"],
         ),
+        "competencies": [
+            {"key": c["key"], "name": c["name"], "description": c["description"]}
+            for c in profile.competencies
+        ],
         "age": [profile.base_age_min, profile.base_age_max],
         "relaxations": sorted(
             [r.normalized_category or "", r.relaxation_text or ""] for r in profile.age_relaxation_rules
@@ -311,12 +316,16 @@ def compute_section_scores(evaluations: list[CriterionEvaluation], criteria_by_i
     }
 
 
-def compute_suitability(evaluations: list[CriterionEvaluation], criteria_by_id: dict, profile: JobProfile) -> Optional[int]:
+def compute_suitability(
+    evaluations: list[CriterionEvaluation], criteria_by_id: dict, profile: JobProfile,
+    competency_scores: Optional[list[dict]] = None,
+) -> Optional[int]:
     """
     0-100 weighted score over the post's SOFT sections, used to rank
-    candidates: skills match and desirable items. Weights come from the
-    profile and are renormalised over the sections the post actually has.
-    None when no section can be scored.
+    candidates: skills match, desirable items and each competency
+    (projects, leadership, communication, ... scored 0-5 -> 0-100). Weights
+    come from the profile and are renormalised over the sections that could
+    actually be scored for this candidate. None when no section can be scored.
 
     Experience is deliberately left out: its match % is capped at 100, so
     every candidate who meets the must-have experience scores the same and
@@ -329,6 +338,11 @@ def compute_suitability(evaluations: list[CriterionEvaluation], criteria_by_id: 
         "desirable": profile.weight_desirable,
     }
     scored = [(sections[k], w) for k, w in weights.items() if sections[k] is not None and w and w > 0]
+    by_key = {s.get("key"): s for s in competency_scores or [] if isinstance(s, dict)}
+    for comp in profile.competencies:
+        found = by_key.get(comp["key"])
+        if found is not None and found.get("score") is not None and comp["weight"] > 0:
+            scored.append((found["score"] * 20, comp["weight"]))
     if not scored:
         return None
     return round(sum(score * w for score, w in scored) / sum(w for _, w in scored))
@@ -453,6 +467,23 @@ def _post_summary(profile: JobProfile) -> str:
         if c.type in ("experience", "skill")
     ]
     return "\n".join(lines)
+
+
+def check_competencies(candidate: Candidate, profile: JobProfile, document_context: str, cv_context: str) -> Optional[list[dict]]:
+    """The post's competencies scored 0-5 from the candidate's documents
+    (resume first). None when there is nothing to read, the post has no
+    competencies, or Gemini failed -- informational, never blocks screening."""
+    competencies = profile.competencies
+    documents = "\n\n".join(part for part in (cv_context, document_context) if part and part.strip())
+    declared = build_declared_data_context(candidate)
+    if declared:
+        documents = f"APPLICATION DATA (declared by the candidate):\n{declared}\n\n{documents}"
+    if not competencies or not documents.strip():
+        return None
+    try:
+        return assess_competencies_with_gemini(documents, competencies, _post_summary(profile))
+    except Exception:
+        return None
 
 
 def check_government_experience(candidate: Candidate, profile: JobProfile, cv_context: str) -> tuple[Optional[dict], Optional[bool]]:
@@ -580,6 +611,7 @@ def evaluate_candidate(db, candidate: Candidate, profile: JobProfile) -> list[Cr
         candidate.cv_certifications, candidate.has_cyber_security_certification = None, None
         candidate.resume_consistency = None
         candidate.gov_experience, candidate.gov_relevant_experience = None, None
+        candidate.competency_scores = None
         _store_outcome(candidate, "not_eligible", None, None, None)
         return list(age_evaluations.values())
 
@@ -713,13 +745,21 @@ def evaluate_candidate(db, candidate: Candidate, profile: JobProfile) -> list[Cr
             check_government_experience(candidate, profile, cv_context)
         )
 
+    # Competencies (projects, leadership, communication, ...) feed the
+    # suitability score that ranks candidates, so like the government
+    # check they are only assessed for eligible / needs-review candidates.
+    candidate.competency_scores = (
+        None if final_status == "not_eligible"
+        else check_competencies(candidate, profile, document_context, cv_context)
+    )
+
     if final_status == "not_eligible":
         close_miss = close_miss_note(compute_section_scores(created_evaluations, criteria_by_id), profile)
         if close_miss:
             tag, note = "close_miss", close_miss
     _store_outcome(
         candidate, final_status, tag, note,
-        compute_suitability(created_evaluations, criteria_by_id, profile),
+        compute_suitability(created_evaluations, criteria_by_id, profile, candidate.competency_scores),
     )
 
     return created_evaluations
@@ -810,7 +850,7 @@ def reapply_screening_rules(db, profile: JobProfile) -> int:
         status, mismatch_tag, mismatch_note = mismatch_flag(status, candidate)
         if mismatch_tag:
             tag, note = mismatch_tag, mismatch_note
-        suitability = compute_suitability(evaluations, criteria_by_id, profile)
+        suitability = compute_suitability(evaluations, criteria_by_id, profile, candidate.competency_scores)
 
         before = (candidate.computed_status, candidate.review_tag, candidate.suitability_score)
         candidate.computed_status = status

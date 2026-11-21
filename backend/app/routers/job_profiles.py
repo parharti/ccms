@@ -25,7 +25,9 @@ from app.schemas.job_profile import (
     ProfileSettingsUpdate,
 )
 from app.services.auth_service import get_current_hr_user
-from app.services.criteria_utils import resolve_is_essential, skill_items_from_parse, normalize_skill_items
+from app.services.criteria_utils import (
+    normalize_competencies, normalize_skill_items, resolve_is_essential, skill_items_from_parse,
+)
 from app.services.candidate_evaluation import reapply_screening_rules
 
 router = APIRouter(prefix="/jd/profiles", tags=["job-profiles"], dependencies=[Depends(get_current_hr_user)])
@@ -169,12 +171,17 @@ def update_profile_settings(profile_id: str, payload: ProfileSettingsUpdate, db:
     for key in nullable:
         if data.get(key) is not None and not 0 <= data[key] <= 100:
             raise HTTPException(status_code=422, detail="Close-miss minimums must be between 0 and 100.")
+    if "competencies" in data:
+        if any((c.get("weight") or 0) < 0 for c in data["competencies"]):
+            raise HTTPException(status_code=422, detail="Weights cannot be negative.")
+        data["competencies_config"] = normalize_competencies(data.pop("competencies"))
+    competencies = normalize_competencies(data.get("competencies_config", profile.competencies_config))
     # Experience is not part of the suitability score (see compute_suitability).
     weights = {k: data.get(k, getattr(profile, k)) for k in ("weight_skills", "weight_desirable")}
     if any(w < 0 for w in weights.values()):
         raise HTTPException(status_code=422, detail="Weights cannot be negative.")
-    if sum(weights.values()) == 0:
-        raise HTTPException(status_code=422, detail="The skills or desirable-items weight must be above zero.")
+    if sum(weights.values()) + sum(c["weight"] for c in competencies) == 0:
+        raise HTTPException(status_code=422, detail="At least one scoring weight must be above zero.")
 
     for key, value in data.items():
         setattr(profile, key, value)

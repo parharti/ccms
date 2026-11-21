@@ -38,6 +38,15 @@ class AgeRelaxationRuleOut(BaseModel):
     relaxation_text: str
 
 
+class CompetencyItem(BaseModel):
+    """One competency a post scores from the resume (0-5, weighted into
+    the suitability score). key is optional on input -- derived from name."""
+    key: Optional[str] = None
+    name: str
+    description: str = ""
+    weight: int = 15
+
+
 class JobProfileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -49,9 +58,10 @@ class JobProfileOut(BaseModel):
     base_age_max: Optional[int] = None
     experience_tolerance_years: float = 2.0
     exception_skills_threshold: int = 80
-    weight_skills: int = 70
+    weight_skills: int = 40
     weight_experience: int = 30  # unused, see JobProfile.weight_experience
-    weight_desirable: int = 30
+    weight_desirable: int = 15
+    competencies: List[CompetencyItem] = []
     close_miss_skills_min: Optional[int] = None
     close_miss_experience_min: Optional[int] = None
     close_miss_desirable_min: Optional[int] = None
@@ -105,6 +115,8 @@ class ProfileSettingsUpdate(BaseModel):
     weight_skills: Optional[int] = None
     weight_experience: Optional[int] = None
     weight_desirable: Optional[int] = None
+    # The full competency list (replaces the current one).
+    competencies: Optional[List[CompetencyItem]] = None
     # Explicitly sending null switches a close-miss section off.
     close_miss_skills_min: Optional[int] = None
     close_miss_experience_min: Optional[int] = None

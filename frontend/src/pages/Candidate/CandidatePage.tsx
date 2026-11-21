@@ -5,6 +5,7 @@ import { useCandidateReview, useOverrideStatus } from '../../hooks/useReview';
 import { useEvaluateCandidate } from '../../hooks/useScreening';
 import { useJobProfile } from '../../hooks/useJobProfile';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CompetencyProfileCard } from '../../components/CompetencyProfileCard';
 import { formatDateTime, formatDate } from '../../lib/format';
 import { BASE_URL } from '../../lib/api';
 import { formatSkillScore, skillScore } from '../../lib/skillScore';
@@ -468,6 +469,8 @@ export const CandidatePage: React.FC = () => {
           </div>
         );
       })()}
+
+      {profile && <CompetencyProfileCard review={review} profile={profile} />}
 
       {/* Evaluation summary bar */}
       {review.evaluations.length > 0 && (

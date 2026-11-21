@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { Criterion, CriterionCreate, CriterionUpdate, JobProfile } from '../types';
+import type { Competency, Criterion, CriterionCreate, CriterionUpdate, JobProfile } from '../types';
 
 export function useJobProfile(profileId?: string) {
   return useQuery<JobProfile>({
@@ -55,6 +55,7 @@ export interface ProfileSettings {
   weight_skills?: number;
   weight_experience?: number;
   weight_desirable?: number;
+  competencies?: Competency[];
   /** null switches that section's close-miss check off. */
   close_miss_skills_min?: number | null;
   close_miss_experience_min?: number | null;

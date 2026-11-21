@@ -1430,3 +1430,130 @@ def transcribe_document_image_with_gemini(
     raise GeminiParsingError(
         f"Gemini transcription failed after {max_attempts} attempts: {last_error}"
     )
+
+
+COMPETENCY_PROMPT_TEMPLATE = """
+You are scoring a job candidate's documented evidence for a set of
+competencies, for a recruitment screening system. You are NOT judging the
+person -- only how much concrete evidence their documents show.
+
+POST:
+{post_summary}
+
+COMPETENCIES TO SCORE:
+{competency_list}
+
+CANDIDATE DOCUMENTS (CV/resume and any other documents, with page markers):
+---
+{documents}
+---
+
+SCORING SCALE (use whole numbers 0-5, the same for every competency):
+0 = no evidence at all
+1 = only a vague or generic claim ("good communication skills", "team player")
+2 = one weak concrete example, little detail or relevance
+3 = clear concrete evidence (a named project, a specific team led, a report or presentation delivered)
+4 = several strong concrete examples, relevant to the post, with scale or results
+5 = sustained, outstanding evidence: repeated, large-scale, measurable impact
+
+RULES:
+- Use ONLY what is written in the documents. Never guess or infer traits.
+- Self-praise adjectives with no example never score above 1.
+- Ignore name, gender, age, religion, caste/category, college prestige and
+  career gaps -- they are not evidence of any competency.
+- "evidence": quote or closely paraphrase the single strongest line (max 200
+  characters); null when the score is 0.
+- "document" / "page": where that line is (from the page markers); null if none.
+- "reason": one short sentence on why this score.
+
+Return ONLY valid JSON, no markdown, no backticks, using exactly this shape,
+one object per competency in the same order (C1, C2, ...):
+
+{{
+  "competencies": [
+    {{"id": "C1", "score": <0-5>, "evidence": "<text or null>", "document": "<file name or null>", "page": <int or null>, "reason": "<one sentence>"}}
+  ]
+}}
+"""
+
+
+def assess_competencies_with_gemini(
+    documents: str, competencies: list[dict], post_summary: str, max_attempts: int = 3
+) -> list[dict]:
+    """Scores each competency 0-5 from the candidate's documents. Returns one
+    dict per competency, in order: {"key", "name", "score", "evidence",
+    "document", "page", "reason"}. Raises GeminiParsingError on failure."""
+    if not GEMINI_API_KEY:
+        raise GeminiParsingError("GEMINI_API_KEY environment variable is not set.")
+    if not competencies:
+        return []
+
+    competency_list = "\n".join(
+        f"C{n}. {c['name']}" + (f" -- {c['description']}" if c.get("description") else "")
+        for n, c in enumerate(competencies, start=1)
+    )
+    prompt = COMPETENCY_PROMPT_TEMPLATE.format(
+        post_summary=post_summary, competency_list=competency_list, documents=documents
+    )
+    client = _get_client()
+
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL, contents=prompt, config=GEMINI_GENERATION_CONFIG,
+            )
+            raw = (response.text or "").strip()
+            if raw.startswith("```"):
+                raw = raw.strip("`")
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            parsed = json.loads(raw)
+            entries = parsed.get("competencies") if isinstance(parsed, dict) else None
+            if not isinstance(entries, list):
+                raise ValueError("competency response has no 'competencies' list")
+            by_id = {}
+            for i, entry in enumerate(entries, start=1):
+                if isinstance(entry, dict):
+                    by_id[str(entry.get("id") or f"C{i}").strip().upper()] = entry
+            results = []
+            for n, comp in enumerate(competencies, start=1):
+                entry = by_id.get(f"C{n}")
+                if entry is None:
+                    raise ValueError(f"competency C{n} missing from response")
+                try:
+                    score = min(5, max(0, int(round(float(entry.get("score"))))))
+                except (TypeError, ValueError):
+                    raise ValueError(f"competency C{n} has no numeric score")
+                try:
+                    page = int(entry["page"]) if entry.get("page") is not None else None
+                except (TypeError, ValueError):
+                    page = None
+
+                def text(value, limit):
+                    t = str(value).strip() if value is not None else ""
+                    return t[:limit] if t and t.lower() not in ("null", "none", "n/a") else None
+
+                results.append({
+                    "key": comp["key"],
+                    "name": comp["name"],
+                    "score": score,
+                    "evidence": text(entry.get("evidence"), 300) if score > 0 else None,
+                    "document": text(entry.get("document"), 300),
+                    "page": page,
+                    "reason": text(entry.get("reason"), 400),
+                })
+            return results
+        except (json.JSONDecodeError, ValueError) as e:
+            last_error = e
+        except Exception as e:
+            last_error = e
+            if not _is_retryable(e):
+                break
+        if attempt < max_attempts:
+            _sleep_before_retry(attempt, last_error)
+
+    raise GeminiParsingError(
+        f"Gemini did not return valid competency scores after {max_attempts} attempts: {last_error}"
+    )
