@@ -44,38 +44,69 @@ function buildSections(review: CandidateReviewDetail, profile: JobProfile): Sect
   return sections.filter((s) => s.weight > 0);
 }
 
+/** Splits a label into lines of at most `max` characters, breaking on spaces. */
+function wrapLabel(label: string, max = 14): string[] {
+  const lines: string[] = [];
+  for (const word of label.split(/\s+/)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && `${last} ${word}`.length <= max) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
+
 const RadarChart: React.FC<{ sections: Section[] }> = ({ sections }) => {
-  const size = 300;
-  const c = size / 2;
-  const r = 96;
+  // Wide canvas with generous margins so every label fits in full.
+  const width = 460;
+  const height = 380;
+  const cx = width / 2;
+  const cy = height / 2 + 6;
+  const r = 110;
   const n = sections.length;
-  const point = (i: number, v: number) => {
-    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    return [c + Math.cos(a) * r * v, c + Math.sin(a) * r * v];
-  };
+  const angle = (i: number) => -Math.PI / 2 + (2 * Math.PI * i) / n;
+  const point = (i: number, v: number) => [cx + Math.cos(angle(i)) * r * v, cy + Math.sin(angle(i)) * r * v];
   const ring = (v: number) => sections.map((_, i) => point(i, v).join(',')).join(' ');
   const shape = sections.map((s, i) => point(i, (s.value ?? 0) / 100).join(',')).join(' ');
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[320px] mx-auto" role="img" aria-label="Competency radar chart">
-      {[0.2, 0.4, 0.6, 0.8, 1].map((v) => (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full max-w-[460px] mx-auto" role="img" aria-label="Candidate score by field">
+      {[0.25, 0.5, 0.75, 1].map((v) => (
         <polygon key={v} points={ring(v)} fill="none" stroke="var(--border)" strokeWidth={1} />
+      ))}
+      {[50, 100].map((v) => (
+        <text key={v} x={cx + 4} y={cy - r * (v / 100) + 11} fontSize={10} fill="var(--muted)">
+          {v}%
+        </text>
       ))}
       {sections.map((_, i) => {
         const [x, y] = point(i, 1);
-        return <line key={i} x1={c} y1={c} x2={x} y2={y} stroke="var(--border)" strokeWidth={1} />;
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border)" strokeWidth={1} />;
       })}
       <polygon points={shape} fill="var(--primary)" fillOpacity={0.18} stroke="var(--primary)" strokeWidth={2} strokeLinejoin="round" />
       {sections.map((s, i) => {
         const [x, y] = point(i, (s.value ?? 0) / 100);
-        return <circle key={s.key} cx={x} cy={y} r={3.5} fill="var(--primary)" />;
+        return <circle key={s.key} cx={x} cy={y} r={4} fill="var(--primary)" />;
       })}
       {sections.map((s, i) => {
-        const [x, y] = point(i, 1.2);
-        const anchor = Math.abs(x - c) < 8 ? 'middle' : x > c ? 'start' : 'end';
+        const [x, y] = point(i, 1.14);
+        const cos = Math.cos(angle(i));
+        const sin = Math.sin(angle(i));
+        const anchor = Math.abs(cos) < 0.2 ? 'middle' : cos > 0 ? 'start' : 'end';
+        const lines = wrapLabel(s.label);
+        const lineHeight = 14;
+        const blockHeight = (lines.length + 1) * lineHeight;
+        // Labels above the chart grow upward, below it downward, at the sides centred.
+        const top = sin < -0.2 ? y - blockHeight + lineHeight / 2 : sin > 0.2 ? y + lineHeight / 2 : y - blockHeight / 2 + lineHeight / 2;
         return (
-          <text key={s.key} x={x} y={y} textAnchor={anchor} dominantBaseline="middle" fontSize={11} fontWeight={600} fill="var(--foreground)">
-            {s.label.length > 18 ? `${s.label.slice(0, 17)}…` : s.label}
+          <text key={s.key} x={x} y={top} textAnchor={anchor} fontSize={12} fill="var(--foreground)">
+            {lines.map((line, j) => (
+              <tspan key={j} x={x} dy={j === 0 ? 0 : lineHeight} fontWeight={600}>
+                {line}
+              </tspan>
+            ))}
+            <tspan x={x} dy={lineHeight} fontWeight={700} fill="var(--primary)">
+              {s.value != null ? `${Math.round(s.value)}%` : 'not scored'}
+            </tspan>
           </text>
         );
       })}
@@ -115,7 +146,7 @@ export const CompetencyProfileCard: React.FC<{ review: CandidateReviewDetail; pr
         </p>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_1fr] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,460px)_1fr] gap-6 items-start">
         {sections.length >= 3 ? <RadarChart sections={sections} /> : <div />}
         <ul className="flex flex-col gap-3 min-w-0">
           {sections.map((s) => {
